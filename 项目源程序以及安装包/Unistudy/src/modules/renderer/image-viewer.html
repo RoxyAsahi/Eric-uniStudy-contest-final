@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta
+        http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: file: http: https:; connect-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self';"
+    >
+    <title>图片预览</title>
+    <style>
+        :root {
+            --viewer-bg: #f8fafd;
+            --viewer-surface: #ffffff;
+            --viewer-surface-alt: #eef3f8;
+            --viewer-primary: #1a73e8;
+            --viewer-primary-container: #d3e3fd;
+            --viewer-on-primary: #ffffff;
+            --viewer-on-primary-container: #041e49;
+            --viewer-text: #202124;
+            --viewer-muted: #5f6368;
+            --viewer-hover: rgba(26, 115, 232, 0.08);
+            --viewer-focus: rgba(26, 115, 232, 0.14);
+            --viewer-danger: #d93025;
+            --viewer-danger-hover: #fce8e6;
+            --viewer-scrim: rgba(32, 33, 36, 0.28);
+        }
+
+        body {
+            margin: 0;
+            background: var(--viewer-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: var(--viewer-text);
+            padding: 52px 24px 88px;
+            box-sizing: border-box;
+        }
+
+        body.annotation-panel-open {
+            padding-left: 288px;
+        }
+
+        .image-container {
+            position: relative;
+            display: inline-block;
+            max-width: calc(100vw - 48px);
+            max-height: calc(100vh - 140px);
+            transform-origin: center center;
+        }
+
+        body.annotation-panel-open .image-container {
+            max-width: calc(100vw - 320px);
+        }
+
+        img {
+            max-width: calc(100vw - 48px);
+            max-height: calc(100vh - 140px);
+            object-fit: contain;
+            border-radius: 4px;
+            display: block;
+            transition: transform 0.1s ease-out;
+        }
+
+        body.annotation-panel-open img {
+            max-width: calc(100vw - 320px);
+        }
+
+        #drawingCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        #drawingCanvas.active {
+            pointer-events: auto;
+        }
+
+        .error-message {
+            max-width: 560px;
+            padding: 20px 24px;
+            background: var(--viewer-surface-alt);
+            border-radius: 8px;
+            color: var(--viewer-muted);
+            font-size: 18px;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        .toolbar {
+            position: absolute;
+            top: 68px;
+            left: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            width: 240px;
+            padding: 8px;
+            background: var(--viewer-surface);
+            border-radius: 8px;
+            z-index: 100;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        .toolbar::before {
+            content: "标注";
+            color: var(--viewer-muted);
+            font-size: 12px;
+            font-weight: 500;
+            padding: 2px 4px 0;
+        }
+
+        .toolbar.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .toolbar-section {
+            display: flex;
+            flex-direction: row;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 4px 0;
+        }
+
+        .toolbar-section.stackable {
+            display: grid;
+            grid-template-columns: repeat(4, 40px);
+        }
+
+        .toolbar-section:last-child {
+            padding-bottom: 0;
+        }
+
+        .toolbar-section.stacked {
+            display: grid;
+            grid-template-columns: repeat(2, max-content);
+            gap: 6px;
+        }
+
+        .tool-btn {
+            width: 40px;
+            height: 40px;
+            background: transparent;
+            color: var(--viewer-muted);
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.18s ease, color 0.18s ease;
+            position: relative;
+        }
+
+        .tool-btn:hover {
+            background: var(--viewer-hover);
+            color: var(--viewer-primary);
+        }
+
+        .tool-btn.active {
+            background: var(--viewer-primary-container);
+            color: var(--viewer-on-primary-container);
+        }
+
+        .tool-btn svg {
+            width: 22px;
+            height: 22px;
+            fill: currentColor;
+        }
+
+        /* Tooltips */
+        .tool-btn::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            left: 55px;
+            background: #3c4043;
+            color: #ffffff;
+            padding: 6px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s;
+            font-size: 12px;
+            z-index: 1000;
+        }
+
+        .tool-btn:hover::after {
+            opacity: 1;
+        }
+
+        /* Color picker */
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 4px 0;
+        }
+
+        #colorCodeDisplay {
+            font-family: monospace;
+            font-size: 13px;
+            background: var(--viewer-primary-container);
+            color: var(--viewer-on-primary-container);
+            padding: 7px 9px;
+            border-radius: 4px;
+            cursor: pointer;
+            user-select: none;
+            transition: background-color 0.2s;
+        }
+
+        #colorCodeDisplay:hover {
+            background: var(--viewer-focus);
+        }
+
+        #colorPicker {
+            width: 40px;
+            height: 40px;
+            border: 0;
+            border-radius: 6px;
+            cursor: pointer;
+            background: transparent;
+            padding: 2px;
+        }
+
+        .brush-size-wrapper {
+            display: grid;
+            grid-template-columns: 1fr 40px;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            padding: 4px 0 0;
+        }
+
+        #brushSize {
+            width: 100%;
+            accent-color: var(--viewer-primary);
+        }
+
+        .brush-preview {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 0;
+        }
+
+        .brush-preview-dot {
+            background: var(--viewer-text);
+            border-radius: 50%;
+            transition: all 0.2s;
+        }
+
+        .controls {
+            position: absolute;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            padding: 8px;
+            background: var(--viewer-surface);
+            border-radius: 8px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+            pointer-events: none;
+            z-index: 120;
+        }
+
+        .controls.active {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        .control-button {
+            min-height: 40px;
+            white-space: nowrap;
+            background: var(--viewer-primary-container);
+            color: var(--viewer-on-primary-container);
+            border: 0;
+            padding: 0 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background-color 0.2s ease;
+        }
+
+        .control-button:hover {
+            background: var(--viewer-focus);
+        }
+
+        .control-button.active {
+            background: var(--viewer-primary-container);
+            color: var(--viewer-on-primary-container);
+        }
+
+        .control-button:disabled {
+            color: var(--viewer-muted);
+            background: var(--viewer-surface-alt);
+            cursor: default;
+        }
+
+        .control-button svg {
+            width: 20px;
+            height: 20px;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2;
+        }
+
+        .more-menu {
+            position: absolute;
+            right: 8px;
+            bottom: calc(100% + 8px);
+            display: none;
+            min-width: 184px;
+            padding: 8px;
+            background: var(--viewer-surface);
+            border-radius: 8px;
+        }
+
+        .more-menu.open {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .menu-item {
+            width: 100%;
+            min-height: 40px;
+            justify-content: flex-start;
+            background: transparent;
+            color: var(--viewer-text);
+            padding: 0 12px;
+            text-align: left;
+        }
+
+        .menu-item:hover {
+            background: var(--viewer-hover);
+        }
+
+        .menu-item svg {
+            width: 20px;
+            height: 20px;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: currentColor;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            stroke-width: 2;
+        }
+
+        .menu-divider {
+            height: 1px;
+            margin: 4px 8px;
+            background: var(--viewer-surface-alt);
+        }
+
+        .button-label {
+            min-width: 0;
+        }
+
+        #custom-title-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 48px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 8px 0 20px;
+            background: var(--viewer-surface);
+            z-index: 1000;
+            -webkit-app-region: drag;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        #custom-title-bar > * {
+            pointer-events: auto;
+        }
+
+        .title-text-container {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            -webkit-app-region: no-drag;
+        }
+
+        #custom-title-bar .title {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--viewer-text);
+        }
+
+        #custom-title-bar .window-controls {
+            display: flex;
+            gap: 4px;
+            -webkit-app-region: no-drag;
+        }
+
+        .window-control-btn {
+            width: 40px;
+            height: 36px;
+            border: none;
+            background: transparent;
+            color: var(--viewer-muted);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s ease, color 0.2s ease;
+        }
+
+        .window-control-btn:hover {
+            background: var(--viewer-hover);
+            color: var(--viewer-primary);
+        }
+
+        #close-viewer-btn:hover {
+            background: var(--viewer-danger-hover);
+            color: var(--viewer-danger);
+        }
+
+        .ocr-modal {
+            display: none;
+            position: fixed;
+            z-index: 1001;
+            inset: 0;
+            overflow: auto;
+            background: var(--viewer-scrim);
+        }
+
+        .ocr-modal-content {
+            background: var(--viewer-surface);
+            margin: 10vh auto;
+            padding: 20px;
+            width: 60%;
+            max-width: 700px;
+            min-width: 320px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .ocr-modal-close {
+            color: var(--viewer-muted);
+            align-self: flex-end;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            font-weight: 400;
+            cursor: pointer;
+        }
+
+        .ocr-modal-close:hover,
+        .ocr-modal-close:focus {
+            background: var(--viewer-hover);
+            color: var(--viewer-primary);
+            text-decoration: none;
+        }
+
+        .ocr-modal h3 {
+            margin-top: 0;
+            color: var(--viewer-text);
+            font-size: 20px;
+            font-weight: 500;
+        }
+
+        #ocrResultText {
+            width: 100%;
+            height: 250px;
+            margin-top: 10px;
+            margin-bottom: 15px;
+            background: var(--viewer-surface-alt);
+            color: var(--viewer-text);
+            border: 0;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            resize: vertical;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        #copyOcrText {
+            align-self: flex-end;
+        }
+
+        @media (max-width: 720px) {
+            body {
+                padding: 56px 12px 92px;
+            }
+
+            body.annotation-panel-open {
+                padding-left: 256px;
+            }
+
+            .toolbar {
+                left: 8px;
+                width: 224px;
+            }
+
+            .image-container,
+            img {
+                max-width: calc(100vw - 24px);
+            }
+
+            body.annotation-panel-open .image-container,
+            body.annotation-panel-open img {
+                max-width: calc(100vw - 272px);
+            }
+
+            .controls {
+                max-width: calc(100vw - 24px);
+                overflow: visible;
+            }
+        }
+
+        @media (max-width: 760px) {
+            .control-button {
+                width: 40px;
+                min-width: 40px;
+                padding: 0;
+                justify-content: center;
+            }
+
+            .controls {
+                gap: 6px;
+            }
+
+            .button-label {
+                display: none;
+            }
+
+            .menu-item .button-label {
+                display: inline;
+            }
+
+            #colorCodeDisplay {
+                display: none;
+            }
+        }
+
+        @media (max-width: 520px) {
+            #custom-title-bar {
+                padding-left: 12px;
+            }
+
+            .title-text-container {
+                max-width: calc(100vw - 148px);
+            }
+
+            .controls {
+                left: 50%;
+                right: auto;
+                transform: translateX(-50%);
+            }
+
+            .more-menu {
+                right: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Custom title bar -->
+    <div id="custom-title-bar">
+        <div class="title-text-container">
+            <span id="image-title-text" class="title">图片预览</span>
+        </div>
+        <div class="window-controls">
+            <button id="minimize-viewer-btn" class="window-control-btn" title="最小化">
+                <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1.2"></line></svg>
+            </button>
+            <button id="maximize-viewer-btn" class="window-control-btn" title="最大化">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path fill="none" stroke="currentColor" stroke-width="1" d="M0.5,0.5 h9 v9 h-9 z"></path></svg>
+            </button>
+            <button id="close-viewer-btn" class="window-control-btn" title="关闭">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path fill="currentColor" d="M0.5,0.5 9.5,9.5 M9.5,0.5 0.5,9.5" stroke="currentColor" stroke-width="1.2"></path></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar hidden" id="toolbar" aria-label="标注工具">
+        <div class="toolbar-section stackable">
+            <button class="tool-btn" id="selectTool" data-tooltip="选择/移动" title="选择">
+                <svg viewBox="0 0 24 24"><path d="M3,3v18l7-5l4,8l3-2l-4-8h8L3,3z"/></svg>
+            </button>
+            <button class="tool-btn" id="brushTool" data-tooltip="画笔" title="画笔">
+                <svg viewBox="0 0 24 24"><path d="M20.71 4.63l-1.34-1.34c-.39-.39-1.02-.39-1.41 0L9 12.25 11.75 15l8.96-8.96c.39-.39.39-1.02 0-1.41zM7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3z"/></svg>
+            </button>
+            <button class="tool-btn" id="eraserTool" data-tooltip="橡皮擦" title="橡皮擦">
+                <svg viewBox="0 0 24 24"><path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 0 1-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0M4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-6.36-6.36-3.54 3.53Z"/></svg>
+            </button>
+            <button class="tool-btn" id="eyedropperTool" data-tooltip="取色器" title="取色器">
+                <svg viewBox="0 0 24 24"><path d="M19.35 11.72l-9.68 9.68c-1.56 1.56-4.09 1.56-5.66 0-1.56-1.56-1.56-4.09 0-5.66l9.68-9.68c.39-.39.39-1.02 0-1.41L12.28 3.24c-.39-.39-1.02-.39-1.41 0l-1.41 1.41c-.39.39-.39 1.02 0 1.41l1.41 1.41-9.68 9.68c-2.34 2.34-2.34 6.14 0 8.49 2.34 2.34 6.14 2.34 8.49 0l9.68-9.68 1.41 1.41c.39.39 1.02.39 1.41 0l1.41-1.41c.39-.39.39-1.02 0-1.41l-1.41-1.41c-.39-.4-1.02-.4-1.42-.01z"/></svg>
+            </button>
+        </div>
+
+        <div class="toolbar-section stackable">
+            <button class="tool-btn" id="lineTool" data-tooltip="直线" title="直线">
+                <svg viewBox="0 0 24 24"><path d="M3,3 L21,21" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+            <button class="tool-btn" id="rectTool" data-tooltip="矩形" title="矩形">
+                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            <button class="tool-btn" id="circleTool" data-tooltip="圆形" title="圆形">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            <button class="tool-btn" id="arrowTool" data-tooltip="箭头" title="箭头">
+                <svg viewBox="0 0 24 24"><path d="M4,12 L20,12 M20,12 L14,6 M20,12 L14,18" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+            </button>
+        </div>
+
+        <div class="toolbar-section">
+            <div class="color-picker-wrapper">
+                <input type="color" id="colorPicker" value="#498094" title="选择颜色">
+                <span id="colorCodeDisplay">#498094</span>
+            </div>
+            <div class="brush-size-wrapper">
+                <input type="range" id="brushSize" min="1" max="50" value="5" title="画笔大小">
+                <div class="brush-preview">
+                    <div class="brush-preview-dot" id="brushPreview"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="toolbar-section">
+            <button class="tool-btn" id="undoBtn" data-tooltip="撤销" title="撤销">
+                <svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>
+            </button>
+            <button class="tool-btn" id="redoBtn" data-tooltip="重做" title="重做">
+                <svg viewBox="0 0 24 24"><path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/></svg>
+            </button>
+            <button class="tool-btn" id="clearBtn" data-tooltip="清除全部" title="清除全部">
+                <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Image and canvas container -->
+    <div class="image-container" id="imageContainer">
+        <img id="viewerImage" src="" alt="图片加载中或加载失败" style="display:none;" />
+        <canvas id="drawingCanvas"></canvas>
+    </div>
+
+    <!-- Bottom controls -->
+    <div class="controls active" id="imageControls" style="display:none;">
+        <button id="copyButton" class="control-button" title="复制">
+            <svg viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 16H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span class="button-label">复制</span>
+        </button>
+        <button id="downloadButton" class="control-button" title="下载">
+            <svg viewBox="0 0 24 24"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+            <span class="button-label">下载</span>
+        </button>
+        <button id="moreMenuButton" class="control-button" title="更多" aria-expanded="false" aria-haspopup="true">
+            <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>
+            <span class="button-label">更多</span>
+        </button>
+        <div id="moreMenu" class="more-menu" role="menu">
+            <button id="annotationToggleButton" class="control-button menu-item" title="标注/编辑" role="menuitem">
+                <svg viewBox="0 0 24 24"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17v3Z"></path><path d="m13.5 8.5 2 2"></path></svg>
+                <span class="button-label">标注/编辑</span>
+            </button>
+            <button id="saveEditedButton" class="control-button menu-item" title="保存编辑" role="menuitem">
+                <svg viewBox="0 0 24 24"><path d="M5 4h12l2 2v14H5V4Z"></path><path d="M8 4v6h8"></path><path d="M8 17h8"></path></svg>
+                <span class="button-label">保存编辑</span>
+            </button>
+            <div class="menu-divider" aria-hidden="true"></div>
+            <button id="ocrButton" class="control-button menu-item" title="识别文字" role="menuitem">
+                <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 10h8"></path><path d="M8 14h5"></path></svg>
+                <span class="button-label">识别文字</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="errorMessage" class="error-message" style="display:none;">无法加载图片。</div>
+
+    <!-- OCR result modal -->
+    <div id="ocrResultModal" class="ocr-modal">
+        <div class="ocr-modal-content">
+            <span class="ocr-modal-close" id="ocrModalClose">&times;</span>
+            <h3>识别结果</h3>
+            <textarea id="ocrResultText" readonly></textarea>
+            <button id="copyOcrText" class="control-button">复制文本</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="image-viewer.js"></script>
+</body>
+</html>

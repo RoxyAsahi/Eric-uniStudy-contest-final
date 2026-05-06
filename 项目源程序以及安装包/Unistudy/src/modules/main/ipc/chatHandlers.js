@@ -1,0 +1,2474 @@
+﻿// modules/ipc/chatHandlers.js
+const { ipcMain, dialog, BrowserWindow } = require('electron');
+const fs = require('fs-extra');
+const path = require('path');
+const contextSanitizer = require('../contextSanitizer');
+const knowledgeBase = require('../knowledge-base');
+const chatClient = require('../chatClient');
+const { resolvePromptMessageSet } = require('../utils/promptVariableResolver');
+const { loadBundledEmoticonPromptData } = require('../emoticons/bundledCatalog');
+const {
+    DEFAULT_AGENT_BUBBLE_THEME_PROMPT,
+    DEFAULT_FOLLOW_UP_PROMPT_TEMPLATE,
+    DEFAULT_TOPIC_TITLE_PROMPT_TEMPLATE,
+    THINKING_CHAT_REASONING_EFFORTS,
+} = require('../utils/settingsSchema');
+const {
+    TASK_KEY_BY_LEGACY_SETTINGS_KEY,
+    MODEL_SERVICE_DEFAULT_KEYS,
+    normalizeModelService,
+    resolveDefaultModelRef,
+    resolveChatFallbackExecution,
+    resolveExecutionConfig,
+} = require('../utils/modelService');
+const { createStudyServices } = require('../study');
+const {
+    buildDefaultPlaceholderTopic,
+    buildPlaceholderTopicName,
+    isPlaceholderTopicName,
+} = require('../utils/topicTitles');
+const {
+    extractResponseContent,
+    resolveDailyNoteGuideInstruction,
+    rewriteLegacyStudyLogPromptText,
+} = require('../study/toolProtocol');
+const { createChatHistoryStore } = require('../chat-history/store');
+
+/**
+ * Initializes chat and topic related IPC handlers.
+ * @param {BrowserWindow|function(): BrowserWindow|null} mainWindow The main window instance or getter.
+ * @param {object} context - An object containing necessary context.
+ * @param {string} context.AGENT_DIR - The path to the agents directory.
+ * @param {string} context.USER_DATA_DIR - The path to the user data directory.
+ * @param {string} context.DATA_ROOT - The path to the app data root.
+ * @param {function} context.getSelectionListenerStatus - Function to get the current status of the selection listener.
+ * @param {function} context.stopSelectionListener - Function to stop the selection listener.
+ * @param {function} context.startSelectionListener - Function to start the selection listener.
+ */
+let ipcHandlersRegistered = false;
+let studyServices = null;
+let chatHistoryStore = null;
+const DEFAULT_CHAT_MODEL = 'gemini-3.1-flash-lite-preview';
+const FOLLOW_UP_HISTORY_LIMIT = 6;
+const FOLLOW_UP_RESULT_LIMIT = 5;
+const FOLLOW_UP_MESSAGE_CHAR_LIMIT = 900;
+const FOLLOW_UP_HISTORY_CHAR_LIMIT = 2600;
+const FOLLOW_UP_MAX_ATTEMPTS = 3;
+const TOPIC_TITLE_HISTORY_LIMIT = 2;
+const TOPIC_TITLE_FALLBACK_LIMIT = 60;
+const FOLLOW_UP_TOOL_BLOCK_REGEX = /<<<\[TOOL_REQUEST\]>>>[\s\S]*?<<<\[END_TOOL_REQUEST\]>>>/g;
+const FOLLOW_UP_CODE_FENCE_REGEX = /```[\s\S]*?```/g;
+const FOLLOW_UP_HTML_BLOCK_REGEX = /<(style|script|svg|canvas|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi;
+const FOLLOW_UP_BUTTON_REGEX = /<button\b[^>]*>([\s\S]*?)<\/button>/gi;
+const FOLLOW_UP_BLOCK_TAG_REGEX = /<\/?(address|article|aside|blockquote|br|caption|dd|details|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>/gi;
+const UTILITY_TASK_DISABLE_THINKING_MODEL_REGEX = /qwen/i;
+const OPENAI_COMPATIBLE_THINKING_BUDGET_MODEL_REGEX = /(qwen|qwq|glm|zhipu|kimi|moonshot|deepseek|hunyuan|doubao|mimo)/i;
+const OPENAI_COMPATIBLE_QWEN_THINKING_MODEL_REGEX = /(qwen|qwq|hunyuan)/i;
+const OPENAI_COMPATIBLE_ZHIPU_THINKING_MODEL_REGEX = /(glm|zhipu)/i;
+const OPENAI_COMPATIBLE_THINKING_OBJECT_MODEL_REGEX = /(kimi|moonshot|deepseek|doubao|mimo)/i;
+const DEFAULT_THINKING_CHAT_REASONING_EFFORT = 'low';
+const THINKING_CHAT_REASONING_EFFORT_SET = new Set(THINKING_CHAT_REASONING_EFFORTS || [
+    'default',
+    'none',
+    'low',
+    'medium',
+    'high',
+]);
+const QWEN_THINKING_BUDGET_BY_EFFORT = Object.freeze({
+    low: 2048,
+    medium: 8192,
+    high: 16384,
+});
+const TOOL_PROTOCOL_SIGNAL_PATTERNS = [
+    /{{\s*DailyNoteGuide\s*}}/i,
+    /——\s*日记\s*\(DailyNote\)\s*——/i,
+    /<<<\[TOOL_REQUEST\]>>>/i,
+    /<<<DailyNoteStart>>>/i,
+    /\b(?:DailyNote|StudyLog)\.(?:create|update|write)\b/i,
+];
+
+function buildLegacyHistoryFilePath(userDataDir, agentId, topicId) {
+    return path.join(userDataDir, agentId, 'topics', topicId, 'history.json');
+}
+
+async function ensureLegacyHistoryDirectory(userDataDir, agentId, topicId) {
+    const historyFilePath = buildLegacyHistoryFilePath(userDataDir, agentId, topicId);
+    await fs.ensureDir(path.dirname(historyFilePath));
+    return historyFilePath;
+}
+
+function decodeFollowUpEntities(text = '') {
+    return String(text || '')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&lt;/gi, '<')
+        .replace(/&gt;/gi, '>')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'");
+}
+
+function stripFollowUpHtml(text = '') {
+    return decodeFollowUpEntities(text)
+        .replace(FOLLOW_UP_HTML_BLOCK_REGEX, ' ')
+        .replace(FOLLOW_UP_BUTTON_REGEX, (_match, label) => {
+            const normalizedLabel = decodeFollowUpEntities(String(label || ''))
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+
+            return normalizedLabel
+                ? `\n[交互按钮：${normalizedLabel}]\n`
+                : '\n[交互按钮已省略]\n';
+        })
+        .replace(FOLLOW_UP_BLOCK_TAG_REGEX, '\n')
+        .replace(/<[^>]+>/g, ' ');
+}
+
+function truncateFollowUpText(text = '', limit = FOLLOW_UP_MESSAGE_CHAR_LIMIT) {
+    const normalized = String(text || '').trim();
+    if (!normalized || !Number.isFinite(limit) || limit <= 0 || normalized.length <= limit) {
+        return normalized;
+    }
+
+    const ellipsis = '\n[...省略...]\n';
+    const headLength = Math.max(120, Math.ceil(limit * 0.65));
+    const tailLength = Math.max(80, limit - headLength - ellipsis.length);
+
+    return `${normalized.slice(0, headLength).trim()}${ellipsis}${normalized.slice(-tailLength).trim()}`.trim();
+}
+
+function sanitizeFollowUpText(text = '', limit = FOLLOW_UP_MESSAGE_CHAR_LIMIT) {
+    const normalized = contextSanitizer.stripThoughtChains(String(text || ''))
+        .replace(/\r/g, '')
+        .replace(FOLLOW_UP_TOOL_BLOCK_REGEX, '\n[工具调用已省略]\n')
+        .replace(FOLLOW_UP_CODE_FENCE_REGEX, '\n[代码块已省略]\n');
+
+    return truncateFollowUpText(
+        stripFollowUpHtml(normalized)
+            .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+            .replace(/\*\*(.*?)\*\*/g, '$1')
+            .replace(/__(.*?)__/g, '$1')
+            .replace(/`([^`]+)`/g, '$1')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1')
+            .replace(/[ \t\f\v]+/g, ' ')
+            .replace(/\n[ \t]+/g, '\n')
+            .replace(/[ \t]+\n/g, '\n')
+            .replace(/\n{3,}/g, '\n\n')
+            .trim(),
+        limit
+    );
+}
+
+function enforceFollowUpHistoryBudget(messages = [], maxChars = FOLLOW_UP_HISTORY_CHAR_LIMIT) {
+    const normalizedMessages = (Array.isArray(messages) ? messages : []).map((message) => ({
+        ...message,
+        content: String(message?.content || '').trim(),
+    }));
+    const currentTotal = normalizedMessages.reduce((sum, message) => sum + message.content.length, 0);
+    if (currentTotal <= maxChars || normalizedMessages.length === 0) {
+        return normalizedMessages;
+    }
+
+    const perMessageLimit = Math.max(180, Math.floor(maxChars / normalizedMessages.length));
+    const compactMessages = normalizedMessages.map((message) => ({
+        ...message,
+        content: truncateFollowUpText(message.content, Math.min(FOLLOW_UP_MESSAGE_CHAR_LIMIT, perMessageLimit)),
+    }));
+    const compactTotal = compactMessages.reduce((sum, message) => sum + message.content.length, 0);
+    if (compactTotal <= maxChars) {
+        return compactMessages;
+    }
+
+    const emergencyLimit = Math.max(120, Math.floor(maxChars / compactMessages.length) - 24);
+    return compactMessages.map((message) => ({
+        ...message,
+        content: truncateFollowUpText(message.content, emergencyLimit),
+    }));
+}
+
+function buildFollowUpRetryPrompt(prompt = '') {
+    const reminder = [
+        '上一次输出不符合要求。',
+        '请重新生成 3 条简短追问，并且只返回一个完整、可解析的 JSON 对象。',
+        '禁止输出解释、标题、Markdown、代码块或多余文本。',
+    ].join('\n');
+
+    return `${String(prompt || '').trim()}\n\n${reminder}`.trim();
+}
+
+function supportsEnableThinkingToggle(model = '') {
+    return UTILITY_TASK_DISABLE_THINKING_MODEL_REGEX.test(String(model || ''));
+}
+
+function isOpenAICompatibleExecution(executionConfig = null) {
+    const protocol = typeof executionConfig?.provider?.protocol === 'string'
+        ? executionConfig.provider.protocol.trim()
+        : '';
+    return !protocol || protocol === 'openai-compatible';
+}
+
+function supportsOpenAICompatibleThinkingBudgetControls(modelConfig = {}, executionConfig = null) {
+    if (!isOpenAICompatibleExecution(executionConfig)) {
+        return false;
+    }
+
+    const modelId = String(executionConfig?.model?.id || modelConfig?.model || '');
+    if (OPENAI_COMPATIBLE_THINKING_BUDGET_MODEL_REGEX.test(modelId)) {
+        return true;
+    }
+
+    return executionConfig?.source === 'modelService'
+        && executionConfig?.provider?.presetId !== 'openai'
+        && executionConfig?.model?.capabilities?.reasoning === true;
+}
+
+function getOpenAICompatibleThinkingModelId(modelConfig = {}, executionConfig = null) {
+    return String(executionConfig?.model?.id || modelConfig?.model || '');
+}
+
+function withFieldIfUnset(config = {}, key, value) {
+    return config[key] === undefined
+        ? { ...config, [key]: value }
+        : config;
+}
+
+function buildFastChatDisableThinkingConfig(modelConfig = {}, executionConfig = null) {
+    const modelId = getOpenAICompatibleThinkingModelId(modelConfig, executionConfig);
+    let nextConfig = withFieldIfUnset(modelConfig, 'enable_thinking', false);
+
+    if (OPENAI_COMPATIBLE_ZHIPU_THINKING_MODEL_REGEX.test(modelId)) {
+        nextConfig = withFieldIfUnset(nextConfig, 'reasoning', { enabled: false, exclude: true });
+        nextConfig = withFieldIfUnset(nextConfig, 'reasoning_effort', 'none');
+        return withFieldIfUnset(nextConfig, 'thinking', { type: 'disabled' });
+    }
+
+    if (OPENAI_COMPATIBLE_THINKING_OBJECT_MODEL_REGEX.test(modelId)) {
+        return withFieldIfUnset(nextConfig, 'thinking', { type: 'disabled' });
+    }
+
+    if (OPENAI_COMPATIBLE_QWEN_THINKING_MODEL_REGEX.test(modelId)) {
+        return nextConfig;
+    }
+
+    return nextConfig;
+}
+
+function buildThinkingChatEffortConfig(modelConfig = {}, effort = DEFAULT_THINKING_CHAT_REASONING_EFFORT, executionConfig = null) {
+    const modelId = getOpenAICompatibleThinkingModelId(modelConfig, executionConfig);
+
+    if (OPENAI_COMPATIBLE_ZHIPU_THINKING_MODEL_REGEX.test(modelId)) {
+        let nextConfig = withFieldIfUnset(modelConfig, 'thinking', { type: 'enabled' });
+        nextConfig = withFieldIfUnset(nextConfig, 'reasoning', { effort });
+        return withFieldIfUnset(nextConfig, 'reasoning_effort', effort);
+    }
+
+    if (OPENAI_COMPATIBLE_THINKING_OBJECT_MODEL_REGEX.test(modelId)) {
+        return withFieldIfUnset(modelConfig, 'thinking', { type: 'enabled' });
+    }
+
+    let nextConfig = modelConfig.enable_thinking === undefined
+        ? { ...modelConfig, enable_thinking: true }
+        : modelConfig;
+    const budget = QWEN_THINKING_BUDGET_BY_EFFORT[effort];
+    if (budget && nextConfig.enable_thinking !== false && nextConfig.thinking_budget === undefined) {
+        nextConfig = nextConfig === modelConfig ? { ...modelConfig } : nextConfig;
+        nextConfig.thinking_budget = budget;
+    }
+
+    return nextConfig;
+}
+
+function resolveModelConfigPurpose(modelConfig = {}) {
+    return typeof modelConfig?.purpose === 'string' && modelConfig.purpose.trim()
+        ? modelConfig.purpose.trim()
+        : 'chat';
+}
+
+function shouldDisableThinkingForFastChat(modelConfig = {}, executionConfig = null) {
+    const purpose = resolveModelConfigPurpose(modelConfig);
+    return purpose === 'chat'
+        && modelConfig.enable_thinking === undefined
+        && supportsOpenAICompatibleThinkingBudgetControls(modelConfig, executionConfig);
+}
+
+function normalizeThinkingChatReasoningEffort(value = '') {
+    const normalized = typeof value === 'string'
+        ? value.trim().toLowerCase()
+        : '';
+    return THINKING_CHAT_REASONING_EFFORT_SET.has(normalized)
+        ? normalized
+        : DEFAULT_THINKING_CHAT_REASONING_EFFORT;
+}
+
+function applyThinkingChatReasoningEffort(modelConfig = {}, settings = {}, executionConfig = null) {
+    if (
+        resolveModelConfigPurpose(modelConfig) !== 'thinkingChat'
+        || !supportsOpenAICompatibleThinkingBudgetControls(modelConfig, executionConfig)
+    ) {
+        return modelConfig;
+    }
+
+    const effort = normalizeThinkingChatReasoningEffort(settings?.thinkingChatReasoningEffort);
+    if (effort === 'default') {
+        return modelConfig;
+    }
+
+    if (effort === 'none') {
+        return buildFastChatDisableThinkingConfig(modelConfig, executionConfig);
+    }
+
+    return buildThinkingChatEffortConfig(modelConfig, effort, executionConfig);
+}
+
+function buildFinalChatModelConfig(modelConfig = {}, executionConfig = null, settings = {}) {
+    const resolvedConfig = {
+        ...modelConfig,
+        ...(executionConfig?.model?.id ? { model: executionConfig.model.id } : {}),
+    };
+
+    if (shouldDisableThinkingForFastChat(resolvedConfig, executionConfig)) {
+        return buildFastChatDisableThinkingConfig(resolvedConfig, executionConfig);
+    }
+
+    return applyThinkingChatReasoningEffort(resolvedConfig, settings, executionConfig);
+}
+
+function buildUtilityTaskModelConfig(model, config = {}) {
+    return {
+        ...config,
+        ...(supportsEnableThinkingToggle(model) ? { enable_thinking: false } : {}),
+    };
+}
+
+function normalizeMessageForPreprocessing(message) {
+    if (!message || typeof message !== 'object') {
+        return { role: 'system', content: '[Invalid message]' };
+    }
+
+    let content = message.content;
+    if (content && typeof content === 'object' && !Array.isArray(content)) {
+        if (typeof content.text === 'string') {
+            content = content.text;
+        } else {
+            content = JSON.stringify(content);
+        }
+    }
+
+    if (content !== undefined && !Array.isArray(content) && typeof content !== 'string') {
+        content = String(content);
+    }
+
+    const normalized = {
+        role: message.role,
+        content,
+    };
+
+    if (message.name) normalized.name = message.name;
+    if (message.tool_calls) normalized.tool_calls = message.tool_calls;
+    if (message.tool_call_id) normalized.tool_call_id = message.tool_call_id;
+    if (typeof message.reasoning_content === 'string' && message.reasoning_content.trim()) {
+        normalized.reasoning_content = message.reasoning_content;
+    }
+
+    return normalized;
+}
+
+function stripThoughtChains(messages) {
+    return messages.map((message) => {
+        if (typeof message.content === 'string') {
+            return { ...message, content: contextSanitizer.stripThoughtChains(message.content) };
+        }
+
+        if (Array.isArray(message.content)) {
+            return {
+                ...message,
+                content: message.content.map((part) => {
+                    if (part?.type === 'text' && typeof part.text === 'string') {
+                        return { ...part, text: contextSanitizer.stripThoughtChains(part.text) };
+                    }
+                    return part;
+                }),
+            };
+        }
+
+        return message;
+    });
+}
+
+function applyAgentBubbleTheme(messages, injectionPrompt = DEFAULT_AGENT_BUBBLE_THEME_PROMPT) {
+    const normalizedPrompt = typeof injectionPrompt === 'string' ? injectionPrompt.trim() : '';
+    if (!normalizedPrompt) {
+        return messages;
+    }
+
+    const nextMessages = [...messages];
+    let systemMessageIndex = nextMessages.findIndex((message) => message.role === 'system');
+
+    if (systemMessageIndex === -1) {
+        nextMessages.unshift({ role: 'system', content: '' });
+        systemMessageIndex = 0;
+    }
+
+    const systemMessage = nextMessages[systemMessageIndex];
+    const currentContent = typeof systemMessage.content === 'string' ? systemMessage.content : '';
+    if (!currentContent.includes(normalizedPrompt)) {
+        nextMessages[systemMessageIndex] = {
+            ...systemMessage,
+            content: `${currentContent}\n\n${normalizedPrompt}`.trim(),
+        };
+    }
+
+    return nextMessages;
+}
+
+function applyEmoticonPrompt(messages, settings = {}, promptResolutionOptions = {}) {
+    if (settings?.enableEmoticonPrompt === false) {
+        return messages;
+    }
+
+    const emoticonPromptData = promptResolutionOptions?.context?.emoticonPromptData || {};
+    const resolvedPrompt = typeof emoticonPromptData.resolvedPrompt === 'string'
+        ? emoticonPromptData.resolvedPrompt.trim()
+        : '';
+    const rawPrompt = typeof settings?.emoticonPrompt === 'string' && settings.emoticonPrompt.trim()
+        ? settings.emoticonPrompt.trim()
+        : (typeof emoticonPromptData.promptTemplate === 'string' ? emoticonPromptData.promptTemplate.trim() : '');
+    const normalizedPrompt = rawPrompt || resolvedPrompt;
+    if (!normalizedPrompt || emoticonPromptData.available === false) {
+        return messages;
+    }
+
+    const nextMessages = [...messages];
+    let systemMessageIndex = nextMessages.findIndex((message) => message.role === 'system');
+
+    if (systemMessageIndex === -1) {
+        nextMessages.unshift({ role: 'system', content: normalizedPrompt });
+        return nextMessages;
+    }
+
+    const systemMessage = nextMessages[systemMessageIndex];
+    const currentContent = typeof systemMessage.content === 'string' ? systemMessage.content : '';
+    const alreadyReferenced = /{{\s*EmoticonGuide\s*}}/.test(currentContent);
+    const alreadyIncluded = currentContent.includes(normalizedPrompt)
+        || (resolvedPrompt ? currentContent.includes(resolvedPrompt) : false);
+    if (alreadyReferenced || alreadyIncluded) {
+        return nextMessages;
+    }
+
+    nextMessages[systemMessageIndex] = {
+        ...systemMessage,
+        content: `${currentContent}\n\n${normalizedPrompt}`.trim(),
+    };
+
+    return nextMessages;
+}
+
+function applyDailyNoteProtocol(messages, settings = {}, promptResolutionOptions = {}) {
+    if (settings?.studyLogPolicy?.enabled === false) {
+        return messages;
+    }
+    if (settings?.studyLogPolicy?.autoInjectDailyNoteProtocol === false) {
+        return messages;
+    }
+
+    const dailyNotePrompt = resolveDailyNoteGuideInstruction(settings?.dailyNoteGuide, {
+        agentConfig: promptResolutionOptions.agentConfig,
+        context: promptResolutionOptions.context,
+    });
+    const normalizedPrompt = typeof dailyNotePrompt === 'string' ? dailyNotePrompt.trim() : '';
+    if (!normalizedPrompt) {
+        return messages;
+    }
+
+    const nextMessages = [...messages];
+    let systemMessageIndex = nextMessages.findIndex((message) => message.role === 'system');
+
+    if (systemMessageIndex === -1) {
+        nextMessages.unshift({ role: 'system', content: normalizedPrompt });
+        return nextMessages;
+    }
+
+    const systemMessage = nextMessages[systemMessageIndex];
+    const currentContent = typeof systemMessage.content === 'string' ? systemMessage.content : '';
+    if (
+        currentContent.includes('—— 日记 (DailyNote) ——')
+        || /{{\s*DailyNoteGuide\s*}}/.test(currentContent)
+    ) {
+        return nextMessages;
+    }
+
+    nextMessages[systemMessageIndex] = {
+        ...systemMessage,
+        content: `${currentContent}\n\n${normalizedPrompt}`.trim(),
+    };
+
+    return nextMessages;
+}
+
+function normalizeLegacyStudyLogPromptMessages(messages = []) {
+    return (Array.isArray(messages) ? messages : []).map((message) => {
+        if (!message || message.role !== 'system' || typeof message.content !== 'string') {
+            return message;
+        }
+
+        return {
+            ...message,
+            content: rewriteLegacyStudyLogPromptText(message.content),
+        };
+    });
+}
+
+function messageContentHasToolProtocolSignals(content) {
+    if (typeof content === 'string') {
+        return TOOL_PROTOCOL_SIGNAL_PATTERNS.some((pattern) => pattern.test(content));
+    }
+
+    if (Array.isArray(content)) {
+        return content.some((part) => {
+            if (part?.type === 'text' && typeof part.text === 'string') {
+                return messageContentHasToolProtocolSignals(part.text);
+            }
+            return typeof part?.text === 'string' && messageContentHasToolProtocolSignals(part.text);
+        });
+    }
+
+    if (content && typeof content === 'object' && typeof content.text === 'string') {
+        return messageContentHasToolProtocolSignals(content.text);
+    }
+
+    return false;
+}
+
+function hasToolProtocolMessages(messages = []) {
+    return (Array.isArray(messages) ? messages : []).some((message) => (
+        message && messageContentHasToolProtocolSignals(message.content)
+    ));
+}
+
+function resolveChatExecutionMode(options = {}) {
+    const explicitExecutionMode = typeof options.requestExecutionMode === 'string'
+        ? options.requestExecutionMode.trim()
+        : (typeof options.context?.executionMode === 'string' ? options.context.executionMode.trim() : '');
+
+    if (explicitExecutionMode === 'tool-orchestrated' || explicitExecutionMode === 'direct-stream') {
+        return explicitExecutionMode;
+    }
+
+    if (hasToolProtocolMessages(options.messages)) {
+        return 'tool-orchestrated';
+    }
+
+    return 'direct-stream';
+}
+
+function applyContextSanitizer(messages, settings) {
+    if (settings.enableContextSanitizer !== true) {
+        return messages;
+    }
+
+    const sanitizerDepth = settings.contextSanitizerDepth !== undefined
+        ? settings.contextSanitizerDepth
+        : 2;
+    const systemMessages = messages.filter((message) => message.role === 'system');
+    const nonSystemMessages = messages.filter((message) => message.role !== 'system');
+    const sanitizedMessages = contextSanitizer.sanitizeMessages(
+        nonSystemMessages,
+        sanitizerDepth,
+        settings.enableThoughtChainInjection === true
+    );
+
+    return [...systemMessages, ...sanitizedMessages];
+}
+
+async function buildPromptResolutionOptions({
+    settings,
+    context,
+    modelConfig,
+    agentConfigManager,
+    dataRoot = '',
+    projectRoot = '',
+}) {
+    const nextContext = { ...(context || {}) };
+    let agentConfig = null;
+
+    if (nextContext.agentId && agentConfigManager && typeof agentConfigManager.readAgentConfig === 'function') {
+        try {
+            agentConfig = await agentConfigManager.readAgentConfig(nextContext.agentId);
+        } catch (error) {
+            console.warn(`[Main - sendChatRequest] Failed to read agent config for prompt resolution (${nextContext.agentId}):`, error);
+        }
+    }
+
+    if (agentConfig) {
+        if (!nextContext.agentName && typeof agentConfig.name === 'string') {
+            nextContext.agentName = agentConfig.name;
+        }
+
+        if (!nextContext.topicName && nextContext.topicId && Array.isArray(agentConfig.topics)) {
+            const matchedTopic = agentConfig.topics.find((topic) => topic?.id === nextContext.topicId);
+            if (matchedTopic?.name) {
+                nextContext.topicName = matchedTopic.name;
+            }
+        }
+    }
+
+    try {
+        nextContext.emoticonPromptData = await loadBundledEmoticonPromptData({
+            dataRoot,
+            projectRoot,
+            settings,
+        });
+    } catch (error) {
+        console.warn('[Main - sendChatRequest] Failed to load bundled emoticon prompt data:', error);
+        nextContext.emoticonPromptData = {
+            available: false,
+            packCount: 0,
+            packs: [],
+            variables: {},
+            promptTemplate: '',
+            resolvedPrompt: '',
+        };
+    }
+
+    return {
+        settings,
+        agentConfig,
+        context: nextContext,
+        modelConfig,
+    };
+}
+
+function flattenFollowUpMessageContent(content) {
+    if (typeof content === 'string') {
+        return sanitizeFollowUpText(content);
+    }
+
+    if (Array.isArray(content)) {
+        return sanitizeFollowUpText(content
+            .map((part) => {
+                if (part?.type === 'text' && typeof part.text === 'string') {
+                    return part.text.trim();
+                }
+                if (part?.type === 'image_url') {
+                    return '[图片]';
+                }
+                if (typeof part?.content === 'string') {
+                    return part.content.trim();
+                }
+                return '';
+            })
+            .filter(Boolean)
+            .join('\n')
+            .trim());
+    }
+
+    if (content && typeof content === 'object') {
+        if (typeof content.text === 'string') {
+            return sanitizeFollowUpText(content.text);
+        }
+
+        try {
+            return sanitizeFollowUpText(JSON.stringify(content));
+        } catch (_error) {
+            return sanitizeFollowUpText(String(content));
+        }
+    }
+
+    if (content === null || content === undefined) {
+        return '';
+    }
+
+    return sanitizeFollowUpText(String(content));
+}
+
+function selectVisibleFollowUpMessages(messages = [], limit = FOLLOW_UP_HISTORY_LIMIT) {
+    const visibleMessages = (Array.isArray(messages) ? messages : [])
+        .filter((message) => (
+            message
+            && (message.role === 'user' || message.role === 'assistant')
+            && message.isThinking !== true
+        ))
+        .map((message) => ({
+            role: message.role,
+            content: flattenFollowUpMessageContent(message.content),
+        }))
+        .filter((message) => message.content)
+        .slice(-limit);
+
+    return enforceFollowUpHistoryBudget(visibleMessages);
+}
+
+function selectVisibleTopicTitleSourceMessages(messages = []) {
+    return (Array.isArray(messages) ? messages : [])
+        .filter((message) => (
+            message
+            && (message.role === 'user' || message.role === 'assistant')
+            && message.isThinking !== true
+        ))
+        .map((message) => ({
+            role: message.role,
+            content: flattenFollowUpMessageContent(message.content),
+        }))
+        .filter((message) => message.content);
+}
+
+function formatFollowUpChatHistory(messages = []) {
+    return selectVisibleFollowUpMessages(messages)
+        .map((message, index) => {
+            const speaker = message.role === 'user' ? '用户' : '助手';
+            return `[${index + 1}] ${speaker}:\n${message.content}`;
+        })
+        .join('\n\n')
+        .trim();
+}
+
+function buildFollowUpPrompt(template = '', messages = []) {
+    const chatHistory = formatFollowUpChatHistory(messages);
+    const promptTemplate = typeof template === 'string' && template.trim()
+        ? template
+        : DEFAULT_FOLLOW_UP_PROMPT_TEMPLATE;
+
+    if (!chatHistory) {
+        return promptTemplate.replace(/{{CHAT_HISTORY}}/g, '');
+    }
+
+    if (promptTemplate.includes('{{CHAT_HISTORY}}')) {
+        return promptTemplate.replace(/{{CHAT_HISTORY}}/g, chatHistory);
+    }
+
+    return `${promptTemplate.trim()}\n\n${chatHistory}`.trim();
+}
+
+function formatTopicTitleChatHistory(messages = [], limit = TOPIC_TITLE_HISTORY_LIMIT) {
+    return selectVisibleFollowUpMessages(messages, limit)
+        .map((message, index) => {
+            const speaker = message.role === 'user' ? 'User' : 'Assistant';
+            return `[${index + 1}] ${speaker}:\n${message.content}`;
+        })
+        .join('\n\n')
+        .trim();
+}
+
+function replaceMessagesEndVariables(template = '', messages = []) {
+    return String(template || '').replace(/{{\s*MESSAGES:END:(\d+)\s*}}/gi, (_match, rawLimit) => {
+        const limit = Math.max(1, Number.parseInt(rawLimit, 10) || TOPIC_TITLE_HISTORY_LIMIT);
+        return formatTopicTitleChatHistory(messages, limit);
+    });
+}
+
+function buildTopicTitlePrompt(template = '', messages = []) {
+    const chatHistory = formatTopicTitleChatHistory(messages);
+    const promptTemplate = typeof template === 'string' && template.trim()
+        ? template
+        : DEFAULT_TOPIC_TITLE_PROMPT_TEMPLATE;
+    let prompt = replaceMessagesEndVariables(promptTemplate, messages);
+
+    if (!chatHistory) {
+        return prompt.replace(/{{CHAT_HISTORY}}/g, '');
+    }
+
+    if (prompt.includes('{{CHAT_HISTORY}}')) {
+        return prompt.replace(/{{CHAT_HISTORY}}/g, chatHistory);
+    }
+
+    if (prompt !== promptTemplate) {
+        return prompt.trim();
+    }
+
+    return `${prompt.trim()}\n\n${chatHistory}`.trim();
+}
+
+function stripJsonCodeFence(text = '') {
+    const trimmed = String(text || '').trim();
+    const fencedMatch = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    return fencedMatch ? fencedMatch[1].trim() : trimmed;
+}
+
+function extractFirstJsonObject(text = '') {
+    const source = String(text || '');
+    let startIndex = -1;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+        const char = source[index];
+
+        if (startIndex === -1) {
+            if (char === '{') {
+                startIndex = index;
+                depth = 1;
+            }
+            continue;
+        }
+
+        if (escaped) {
+            escaped = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escaped = inString;
+            continue;
+        }
+
+        if (char === '"') {
+            inString = !inString;
+            continue;
+        }
+
+        if (inString) {
+            continue;
+        }
+
+        if (char === '{') {
+            depth += 1;
+            continue;
+        }
+
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return source.slice(startIndex, index + 1).trim();
+            }
+        }
+    }
+
+    return '';
+}
+
+function normalizeFollowUps(followUps = []) {
+    return [...new Set(
+        (Array.isArray(followUps) ? followUps : [])
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+    )].slice(0, FOLLOW_UP_RESULT_LIMIT);
+}
+
+function extractJsonCandidates(text = '') {
+    const normalized = stripJsonCodeFence(text);
+    const candidates = [normalized];
+    const firstObject = extractFirstJsonObject(normalized);
+    if (firstObject) {
+        candidates.push(firstObject);
+    }
+    const objectStart = normalized.indexOf('{');
+    const objectEnd = normalized.lastIndexOf('}');
+    if (objectStart !== -1 && objectEnd > objectStart) {
+        candidates.push(normalized.slice(objectStart, objectEnd + 1));
+    }
+
+    const arrayStart = normalized.indexOf('[');
+    const arrayEnd = normalized.lastIndexOf(']');
+    if (arrayStart !== -1 && arrayEnd > arrayStart) {
+        candidates.push(normalized.slice(arrayStart, arrayEnd + 1));
+    }
+
+    return [...new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean))];
+}
+
+function parseFollowUpsResponse(responseText = '') {
+    for (const candidate of extractJsonCandidates(responseText)) {
+        try {
+            const parsed = JSON.parse(candidate);
+            if (Array.isArray(parsed)) {
+                return normalizeFollowUps(parsed);
+            }
+            if (parsed && typeof parsed === 'object') {
+                if (Array.isArray(parsed.follow_ups)) {
+                    return normalizeFollowUps(parsed.follow_ups);
+                }
+                if (Array.isArray(parsed.followUps)) {
+                    return normalizeFollowUps(parsed.followUps);
+                }
+            }
+        } catch (_error) {
+            // Ignore invalid candidates and keep trying.
+        }
+    }
+
+    return [];
+}
+
+function normalizeTopicTitle(title = '') {
+    return String(title || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function extractFirstUserTitleFallback(messages = [], maxLength = TOPIC_TITLE_FALLBACK_LIMIT) {
+    const firstUserMessage = (Array.isArray(messages) ? messages : [])
+        .find((message) => message?.role === 'user');
+    const normalized = normalizeTopicTitle(flattenFollowUpMessageContent(firstUserMessage?.content));
+    if (!normalized) {
+        return '';
+    }
+
+    if (!Number.isFinite(maxLength) || maxLength <= 0 || normalized.length <= maxLength) {
+        return normalized;
+    }
+
+    return `${normalized.slice(0, maxLength).trim()}...`;
+}
+
+function parseTopicTitleResponse(responseText = '', fallbackTitle = '') {
+    for (const candidate of extractJsonCandidates(responseText)) {
+        try {
+            const parsed = JSON.parse(candidate);
+            if (typeof parsed === 'string') {
+                const normalizedStringTitle = normalizeTopicTitle(parsed);
+                if (normalizedStringTitle) {
+                    return normalizedStringTitle;
+                }
+            }
+
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                const normalizedObjectTitle = normalizeTopicTitle(parsed.title);
+                if (normalizedObjectTitle) {
+                    return normalizedObjectTitle;
+                }
+            }
+        } catch (_error) {
+            // Ignore invalid candidates and keep trying.
+        }
+    }
+
+    return normalizeTopicTitle(fallbackTitle);
+}
+
+function resolveTopicTitleBackgroundTask({
+    backgroundTasks = {},
+    context = {},
+    messages = [],
+    model = '',
+    settings = {},
+} = {}) {
+    const topicTitleTask = backgroundTasks?.topicTitle;
+    if (!topicTitleTask || topicTitleTask.enabled !== true) {
+        return null;
+    }
+
+    if (settings?.enableTopicTitleGeneration === false) {
+        return null;
+    }
+
+    const agentId = String(context?.agentId || '').trim();
+    const topicId = String(context?.topicId || '').trim();
+    const messageId = String(context?.assistantMessageId || context?.messageId || '').trim();
+    const expectedTopicName = normalizeTopicTitle(topicTitleTask.expectedTopicName);
+    if (!agentId || !topicId || !messageId || !isPlaceholderTopicName(expectedTopicName)) {
+        return null;
+    }
+
+    const visibleMessages = selectVisibleTopicTitleSourceMessages(messages);
+    if (visibleMessages.length !== 1 || visibleMessages[0]?.role !== 'user') {
+        return null;
+    }
+
+    return {
+        agentId,
+        topicId,
+        messageId,
+        expectedTopicName,
+        model,
+        userMessage: visibleMessages[0],
+    };
+}
+
+function extractAssistantContentFromCompletion(completion = {}) {
+    if (typeof completion?.content === 'string' && completion.content.trim()) {
+        return completion.content;
+    }
+    if (typeof completion?.fullResponse === 'string' && completion.fullResponse.trim()) {
+        return completion.fullResponse;
+    }
+    if (typeof completion?.partialResponse === 'string' && completion.partialResponse.trim()) {
+        return completion.partialResponse;
+    }
+    return extractResponseContent(completion?.response || {});
+}
+
+function isSuccessfulTopicTitleCompletion(completion = {}) {
+    if (!completion || completion.error) {
+        return false;
+    }
+    if (completion.success === false || completion.interrupted === true || completion.timedOut === true) {
+        return false;
+    }
+
+    const finishReason = String(completion.finishReason || '').trim();
+    if (finishReason === 'cancelled_by_user' || finishReason === 'timed_out') {
+        return false;
+    }
+
+    return Boolean(normalizeTopicTitle(extractAssistantContentFromCompletion(completion)));
+}
+
+async function generateTopicTitleResult({
+    settingsManager,
+    agentConfigManager,
+    requestPayload = {},
+    settings: providedSettings = null,
+} = {}) {
+    const visibleMessages = selectVisibleFollowUpMessages(
+        requestPayload.messages,
+        TOPIC_TITLE_HISTORY_LIMIT
+    );
+    const fallbackTitle = extractFirstUserTitleFallback(requestPayload.messages);
+    if (visibleMessages.length === 0) {
+        return { success: true, generated: false, title: fallbackTitle };
+    }
+
+    const settings = providedSettings || (settingsManager && typeof settingsManager.readSettings === 'function'
+        ? await settingsManager.readSettings()
+        : {});
+    const configuredEndpoint = typeof settings?.chatEndpoint === 'string' ? settings.chatEndpoint.trim() : '';
+    const configuredApiKey = typeof settings?.chatApiKey === 'string' ? settings.chatApiKey.trim() : '';
+
+    const model = await resolveTaskModel({
+        agentId: requestPayload.agentId,
+        requestedModel: requestPayload.model,
+        settings,
+        agentConfigManager,
+        logLabel: 'generate-topic-title',
+        preferredSettingsKeys: ['topicTitleDefaultModel'],
+    });
+    const executionConfig = resolveExecutionConfig(settings, {
+        purpose: 'topicTitle',
+        requestedModel: model,
+        fallbackEndpoint: configuredEndpoint,
+        fallbackApiKey: configuredApiKey,
+        fallbackModel: model,
+    });
+    const endpoint = executionConfig?.endpoint || configuredEndpoint;
+    const apiKey = executionConfig?.apiKey || configuredApiKey;
+    const fallbackExecution = resolveChatFallbackExecution(settings);
+    const prompt = buildTopicTitlePrompt(settings.topicTitlePromptTemplate, visibleMessages);
+    if (!endpoint) {
+        return {
+            success: true,
+            generated: false,
+            title: fallbackTitle,
+            model,
+            prompt,
+            error: '模型服务配置不完整。',
+        };
+    }
+
+    const response = await chatClient.send({
+        requestId: `topic_title_${requestPayload.messageId || Date.now()}_${Date.now()}`,
+        endpoint,
+        apiKey,
+        extraHeaders: executionConfig?.extraHeaders || {},
+        messages: [{
+            role: 'user',
+            content: prompt,
+        }],
+        modelConfig: buildUtilityTaskModelConfig(model, {
+            model,
+            stream: false,
+            temperature: 0.1,
+            max_tokens: 200,
+        }),
+        context: {
+            source: 'topic-title-generation',
+            agentId: requestPayload.agentId || '',
+            topicId: requestPayload.topicId || '',
+            messageId: requestPayload.messageId || '',
+        },
+        timeoutMs: 120000,
+        fallbackExecution,
+    });
+
+    if (response?.error) {
+        return {
+            success: true,
+            generated: false,
+            title: fallbackTitle,
+            model,
+            prompt,
+            error: response.error,
+        };
+    }
+
+    const rawContent = extractResponseContent(response?.response || {});
+    const title = parseTopicTitleResponse(rawContent, fallbackTitle) || fallbackTitle;
+    return {
+        success: true,
+        generated: title !== fallbackTitle,
+        title,
+        model,
+        prompt,
+        rawContent,
+    };
+}
+
+async function persistTopicTitleWithGuard({
+    agentConfigManager,
+    agentId = '',
+    topicId = '',
+    title = '',
+    expectedTopicName = '',
+} = {}) {
+    const normalizedTitle = normalizeTopicTitle(title);
+    const normalizedExpectedTopicName = normalizeTopicTitle(expectedTopicName);
+    if (!agentConfigManager || typeof agentConfigManager.updateTopic !== 'function') {
+        return { persisted: false, error: 'AgentConfigManager is unavailable.' };
+    }
+    if (!agentId || !topicId || !normalizedTitle || !isPlaceholderTopicName(normalizedExpectedTopicName)) {
+        return { persisted: false, error: 'Invalid topic title task.' };
+    }
+
+    let persisted = false;
+    const result = await agentConfigManager.updateTopic(agentId, topicId, (topic) => {
+        const currentName = normalizeTopicTitle(topic?.name);
+        if (!isPlaceholderTopicName(currentName) || currentName !== normalizedExpectedTopicName) {
+            return topic;
+        }
+
+        persisted = true;
+        return {
+            ...topic,
+            name: normalizedTitle,
+        };
+    });
+
+    return {
+        persisted,
+        title: normalizedTitle,
+        topics: Array.isArray(result?.config?.topics) ? result.config.topics : [],
+    };
+}
+
+function emitTopicTitleEvent(webContents, payload = {}) {
+    const isDestroyed = typeof webContents?.isDestroyed === 'function'
+        ? webContents.isDestroyed()
+        : false;
+    if (!webContents || typeof webContents.send !== 'function' || isDestroyed) {
+        return;
+    }
+
+    webContents.send('chat-stream-event', payload);
+}
+
+async function runTopicTitleBackgroundTask({
+    task,
+    completion,
+    settingsManager,
+    agentConfigManager,
+    webContents,
+} = {}) {
+    if (!task || !isSuccessfulTopicTitleCompletion(completion)) {
+        return null;
+    }
+
+    const assistantContent = String(extractAssistantContentFromCompletion(completion) || '').trim();
+    const messages = [
+        task.userMessage,
+        { role: 'assistant', content: assistantContent },
+    ];
+
+    try {
+        const titleResult = await generateTopicTitleResult({
+            settingsManager,
+            agentConfigManager,
+            requestPayload: {
+                agentId: task.agentId,
+                topicId: task.topicId,
+                messageId: task.messageId,
+                model: task.model,
+                messages,
+            },
+        });
+        const title = normalizeTopicTitle(titleResult?.title);
+        if (!title) {
+            return null;
+        }
+
+        const persistResult = await persistTopicTitleWithGuard({
+            agentConfigManager,
+            agentId: task.agentId,
+            topicId: task.topicId,
+            title,
+            expectedTopicName: task.expectedTopicName,
+        });
+        if (!persistResult.persisted) {
+            return {
+                ...titleResult,
+                persisted: false,
+            };
+        }
+
+        const eventPayload = {
+            type: 'topic-title',
+            requestId: task.messageId,
+            context: {
+                agentId: task.agentId,
+                topicId: task.topicId,
+                messageId: task.messageId,
+            },
+            title: persistResult.title,
+            topics: persistResult.topics,
+        };
+        emitTopicTitleEvent(webContents, eventPayload);
+        return {
+            ...titleResult,
+            persisted: true,
+            title: persistResult.title,
+            topics: persistResult.topics,
+        };
+    } catch (error) {
+        console.error('[Main - topic-title-background-task] Failed:', error);
+        return {
+            success: false,
+            persisted: false,
+            error: error.message,
+        };
+    }
+}
+
+async function requestFollowUpsOnce({
+    attempt = 1,
+    requestIdBase = '',
+    endpoint = '',
+    apiKey = '',
+    extraHeaders = {},
+    fallbackExecution = null,
+    prompt = '',
+    model = '',
+    context = {},
+}) {
+    const response = await chatClient.send({
+        requestId: `${requestIdBase}_attempt_${attempt}`,
+        round: attempt,
+        endpoint,
+        apiKey,
+        extraHeaders,
+        messages: [{
+            role: 'user',
+            content: attempt === 1 ? prompt : buildFollowUpRetryPrompt(prompt),
+        }],
+        modelConfig: buildUtilityTaskModelConfig(model, {
+            model,
+            stream: false,
+            temperature: 0,
+            max_tokens: 1200,
+            response_format: { type: 'json_object' },
+        }),
+        context,
+        timeoutMs: 120000,
+        fallbackExecution,
+    });
+
+    if (response?.error) {
+        return {
+            error: response.error,
+            followUps: [],
+            rawContent: '',
+            fallbackMeta: response?.fallbackMeta || null,
+        };
+    }
+
+    const rawContent = extractResponseContent(response?.response || {});
+    return {
+        rawContent,
+        followUps: parseFollowUpsResponse(rawContent),
+        fallbackMeta: response?.fallbackMeta || null,
+    };
+}
+
+function resolvePreferredTaskKey(preferredSettingsKeys = []) {
+    for (const settingsKey of Array.isArray(preferredSettingsKeys) ? preferredSettingsKeys : []) {
+        const taskKey = TASK_KEY_BY_LEGACY_SETTINGS_KEY[settingsKey];
+        if (taskKey) {
+            return taskKey;
+        }
+    }
+    return null;
+}
+
+async function resolveTaskModel({
+    agentId = '',
+    requestedModel = '',
+    settings = {},
+    agentConfigManager = null,
+    logLabel = 'task',
+    preferredSettingsKeys = [],
+}) {
+    const preferredTaskKey = resolvePreferredTaskKey(preferredSettingsKeys);
+    if (preferredTaskKey && settings?.modelService) {
+        const modelService = normalizeModelService(settings.modelService);
+        const resolvedDefault = resolveDefaultModelRef(modelService, preferredTaskKey);
+        if (resolvedDefault?.model?.id) {
+            return resolvedDefault.model.id;
+        }
+    }
+
+    for (const settingsKey of Array.isArray(preferredSettingsKeys) ? preferredSettingsKeys : []) {
+        if (typeof settings?.[settingsKey] === 'string' && settings[settingsKey].trim()) {
+            return settings[settingsKey].trim();
+        }
+    }
+
+    if (agentId && agentConfigManager && typeof agentConfigManager.readAgentConfig === 'function') {
+        try {
+            const agentConfig = await agentConfigManager.readAgentConfig(agentId, { allowDefault: true });
+            if (typeof agentConfig?.model === 'string' && agentConfig.model.trim()) {
+                return agentConfig.model.trim();
+            }
+        } catch (error) {
+            console.warn(`[Main - ${logLabel}] Failed to read agent config for ${agentId}:`, error);
+        }
+    }
+
+    if (typeof settings?.defaultModel === 'string' && settings.defaultModel.trim()) {
+        return settings.defaultModel.trim();
+    }
+
+    if (typeof requestedModel === 'string' && requestedModel.trim()) {
+        return requestedModel.trim();
+    }
+
+    return DEFAULT_CHAT_MODEL;
+}
+
+async function resolveFollowUpModel({
+    agentId = '',
+    requestedModel = '',
+    settings = {},
+    agentConfigManager = null,
+}) {
+    return resolveTaskModel({
+        agentId,
+        requestedModel,
+        settings,
+        agentConfigManager,
+        logLabel: 'generate-follow-ups',
+        preferredSettingsKeys: ['followUpDefaultModel'],
+    });
+}
+
+function initialize(mainWindow, context) {
+    const {
+        AGENT_DIR,
+        USER_DATA_DIR,
+        DATA_ROOT,
+        PROJECT_ROOT,
+        fileWatcher,
+        settingsManager,
+        agentConfigManager,
+        getSelectionListenerStatus = () => false,
+        stopSelectionListener = () => false,
+        startSelectionListener = () => false,
+    } = context;
+    const getMainWindow = typeof context.getMainWindow === 'function'
+        ? context.getMainWindow
+        : (typeof mainWindow === 'function' ? mainWindow : () => mainWindow || null);
+
+    chatClient.initialize({ settingsManager });
+    studyServices = createStudyServices({
+        dataRoot: DATA_ROOT,
+        settingsManager,
+        chatClient,
+    });
+    chatHistoryStore = context.chatHistoryStore || chatHistoryStore || createChatHistoryStore({
+        dataRoot: DATA_ROOT || path.dirname(USER_DATA_DIR || ''),
+    });
+
+    const getLegacyHistoryPath = (agentId, topicId) => buildLegacyHistoryFilePath(USER_DATA_DIR, agentId, topicId);
+    const ensureTopicHistoryDir = (agentId, topicId) => ensureLegacyHistoryDirectory(USER_DATA_DIR, agentId, topicId);
+    const readChatHistory = async (agentId, topicId) => {
+        const legacyHistoryPath = await ensureTopicHistoryDir(agentId, topicId);
+        return chatHistoryStore.getHistory(agentId, topicId, { legacyHistoryPath });
+    };
+    const saveChatHistory = async (agentId, topicId, history) => {
+        await ensureTopicHistoryDir(agentId, topicId);
+        return chatHistoryStore.replaceHistory(agentId, topicId, Array.isArray(history) ? history : []);
+    };
+
+    // Ensure the watcher is in a clean state on initialization
+    if (fileWatcher) {
+        fileWatcher.stopWatching();
+    }
+
+    if (ipcHandlersRegistered) {
+        return;
+    }
+
+    ipcMain.handle('save-topic-order', async (event, agentId, orderedTopicIds) => {
+        if (!agentId || !Array.isArray(orderedTopicIds)) {
+            return { success: false, error: 'Invalid agentId or topic IDs.' };
+        }
+        try {
+            if (agentConfigManager) {
+                await agentConfigManager.updateAgentConfig(agentId, config => {
+                    if (!config.topics || !Array.isArray(config.topics)) {
+                        return config;
+                    }
+                    const topicMap = new Map(config.topics.map(topic => [topic.id, topic]));
+                    const newTopicsArray = [];
+                    orderedTopicIds.forEach(id => {
+                        if (topicMap.has(id)) {
+                            newTopicsArray.push(topicMap.get(id));
+                            topicMap.delete(id);
+                        }
+                    });
+                    newTopicsArray.push(...topicMap.values());
+                    return { ...config, topics: newTopicsArray };
+                });
+            } else {
+                return { success: false, error: 'AgentConfigManager is unavailable.' };
+            }
+            return { success: true };
+        } catch (error) {
+            console.error(`Error saving topic order for agent ${agentId}:`, error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('search-topics-by-content', async (event, itemId, itemType, searchTerm) => {
+        if (!itemId || itemType !== 'agent' || typeof searchTerm !== 'string' || searchTerm.trim() === '') {
+            return { success: false, error: 'Invalid arguments for topic content search.', matchedTopicIds: [] };
+        }
+        try {
+            const configPath = path.join(AGENT_DIR, itemId, 'config.json');
+            if (!await fs.pathExists(configPath)) {
+                return { success: true, matchedTopicIds: [] };
+            }
+
+            const itemConfig = await fs.readJson(configPath);
+            if (!itemConfig || !Array.isArray(itemConfig.topics)) {
+                return { success: true, matchedTopicIds: [] };
+            }
+
+            const topicIds = itemConfig.topics.map((topic) => topic.id).filter(Boolean);
+            const matchedTopicIds = await chatHistoryStore.findTopicIdsByContent(itemId, topicIds, searchTerm, {
+                legacyHistoryPathForTopic: (topicId) => getLegacyHistoryPath(itemId, topicId),
+            });
+
+            return { success: true, matchedTopicIds };
+        } catch (error) {
+            console.error(`Error searching topic content for agent ${itemId}:`, error);
+            return { success: false, error: error.message, matchedTopicIds: [] };
+        }
+    });
+
+    ipcMain.handle('save-agent-topic-title', async (event, agentId, topicId, newTitle) => {
+        if (!topicId || !newTitle) return { error: 'Missing topicId or newTitle.' };
+        try {
+            if (agentConfigManager) {
+                await agentConfigManager.updateAgentConfig(agentId, existingConfig => {
+                    if (!existingConfig.topics || !Array.isArray(existingConfig.topics)) {
+                        return existingConfig;
+                    }
+                    const updatedConfig = { ...existingConfig, topics: [...existingConfig.topics] };
+                    const topicIndex = updatedConfig.topics.findIndex(t => t.id === topicId);
+                    if (topicIndex !== -1) {
+                        updatedConfig.topics[topicIndex] = { ...updatedConfig.topics[topicIndex], name: newTitle };
+                    }
+                    return updatedConfig;
+                });
+                const updatedConfig = await agentConfigManager.readAgentConfig(agentId);
+                return { success: true, topics: updatedConfig.topics };
+            } else {
+                console.error(`AgentConfigManager not available, cannot safely save topic title for agent ${agentId}`);
+                return { error: 'AgentConfigManager is unavailable.' };
+            }
+        } catch (error) {
+            console.error(`Failed to save topic title for agent ${agentId}, topic ${topicId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-chat-history', async (event, agentId, topicId) => {
+        if (!topicId) return { error: `Missing topicId for agent ${agentId}.` };
+        try {
+            return await readChatHistory(agentId, topicId);
+        } catch (error) {
+            console.error(`Failed to load chat history for agent ${agentId}, topic ${topicId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-chat-history-page', async (event, agentId, topicId, pageOptions = {}) => {
+        if (!topicId) return { success: false, error: `Missing topicId for agent ${agentId}.`, messages: [] };
+        try {
+            const legacyHistoryPath = await ensureTopicHistoryDir(agentId, topicId);
+            return await chatHistoryStore.getHistoryPage(agentId, topicId, pageOptions, { legacyHistoryPath });
+        } catch (error) {
+            console.error(`Failed to load chat history page for agent ${agentId}, topic ${topicId}:`, error);
+            return { success: false, error: error.message, messages: [] };
+        }
+    });
+
+    ipcMain.handle('save-chat-history', async (event, agentId, topicId, history) => {
+        if (!topicId) return { error: `Missing topicId for agent ${agentId}.` };
+        try {
+            if (fileWatcher) {
+                fileWatcher.signalInternalSave();
+            }
+            await saveChatHistory(agentId, topicId, history);
+            return { success: true };
+        } catch (error) {
+            console.error(`Failed to save chat history for agent ${agentId}, topic ${topicId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('get-agent-topics', async (event, agentId) => {
+        try {
+            let config;
+            if (agentConfigManager) {
+                try {
+                    config = await agentConfigManager.readAgentConfig(agentId, { allowDefault: true });
+                } catch (readError) {
+                    console.error(`Failed to read config for agent ${agentId} (get-agent-topics):`, readError);
+                    return { error: `Failed to read config file: ${readError.message}` };
+                }
+            } else {
+                const configPath = path.join(AGENT_DIR, agentId, 'config.json');
+                if (await fs.pathExists(configPath)) {
+                    try {
+                        config = await fs.readJson(configPath);
+                    } catch (readError) {
+                        console.error(`Failed to read config.json for agent ${agentId}:`, readError);
+                        return { error: `Failed to read config file: ${readError.message}` };
+                    }
+                }
+            }
+
+            if (config && config.topics && Array.isArray(config.topics)) {
+                // Part A: 鍘嗗彶鏁版嵁鍏煎澶勭悊 - 鑷姩涓虹己灏戞柊瀛楁鐨勮瘽棰樻坊鍔犻粯璁わ拷?
+                const normalizedTopics = config.topics.map(topic => ({
+                    ...topic,
+                    locked: topic.locked !== undefined ? topic.locked : true,
+                    unread: topic.unread !== undefined ? topic.unread : false,
+                    creatorSource: topic.creatorSource || 'unknown',
+                    knowledgeBaseId: topic.knowledgeBaseId || null,
+                    selectedKnowledgeBaseDocumentIds: Array.isArray(topic.selectedKnowledgeBaseDocumentIds)
+                        ? topic.selectedKnowledgeBaseDocumentIds
+                        : null,
+                }));
+                return normalizedTopics;
+            }
+            return [];
+        } catch (error) {
+            console.error(`Failed to load topics for agent ${agentId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('create-new-topic-for-agent', async (event, agentId, topicName, isBranch = false, locked = true) => {
+        try {
+            const newTopicId = `topic_${Date.now()}`;
+            const timestamp = Date.now();
+
+            if (agentConfigManager) {
+                // Read the current config first so the fallback topic number is stable.
+                const currentConfig = await agentConfigManager.readAgentConfig(agentId, { allowDefault: true });
+                if (currentConfig.topics && !Array.isArray(currentConfig.topics)) {
+                    return { error: `Invalid topics array in agent config.` };
+                }
+                const existingTopics = currentConfig.topics || [];
+
+                const newTopic = {
+                    id: newTopicId,
+                    name: typeof topicName === 'string' && topicName.trim()
+                        ? topicName.trim()
+                        : buildPlaceholderTopicName(existingTopics),
+                    createdAt: timestamp,
+                    locked: locked,
+                    unread: false,
+                    creatorSource: "ui",
+                    knowledgeBaseId: null,
+                    selectedKnowledgeBaseDocumentIds: null,
+                };
+                await agentConfigManager.updateAgentConfig(agentId, existingConfig => ({
+                    ...existingConfig,
+                    topics: [newTopic, ...(existingConfig.topics || [])]
+                }));
+                const updatedConfig = await agentConfigManager.readAgentConfig(agentId);
+
+                await ensureTopicHistoryDir(agentId, newTopicId);
+                await chatHistoryStore.replaceHistory(agentId, newTopicId, []);
+
+                return { success: true, topicId: newTopicId, topicName: newTopic.name, topics: updatedConfig.topics };
+            } else {
+                console.error(`AgentConfigManager not available, cannot safely create topic for agent ${agentId}`);
+                return { error: 'AgentConfigManager is unavailable.' };
+            }
+        } catch (error) {
+            console.error(`Failed to create a topic for agent ${agentId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('delete-topic', async (event, agentId, topicIdToDelete) => {
+        try {
+            if (agentConfigManager) {
+                // Read the current config before validating the deletion target.
+                const currentConfig = await agentConfigManager.readAgentConfig(agentId);
+                if (!currentConfig.topics || !Array.isArray(currentConfig.topics)) {
+                    return { error: 'Agent topics are unavailable.' };
+                }
+                const topicToDelete = currentConfig.topics.find(t => t.id === topicIdToDelete);
+                if (!topicToDelete) {
+                    return { error: `Topic not found: ${topicIdToDelete}` };
+                }
+                const knowledgeBaseId = topicToDelete.knowledgeBaseId || null;
+
+                let remainingTopics;
+                await agentConfigManager.updateAgentConfig(agentId, existingConfig => {
+                    let filtered = (existingConfig.topics || []).filter(topic => topic.id !== topicIdToDelete);
+                    if (filtered.length === 0) {
+                        filtered = [buildDefaultPlaceholderTopic()];
+                    }
+                    remainingTopics = filtered;
+                    return { ...existingConfig, topics: filtered };
+                });
+
+                // Recreate the default topic history state when the last topic is deleted.
+                if (remainingTopics.length === 1 && remainingTopics[0].id === 'default') {
+                    await ensureTopicHistoryDir(agentId, 'default');
+                    await chatHistoryStore.replaceHistory(agentId, 'default', []);
+                }
+
+                const topicDataDir = path.join(USER_DATA_DIR, agentId, 'topics', topicIdToDelete);
+                const topicNotesDir = path.join(DATA_ROOT, 'Notes', agentId, topicIdToDelete);
+                const cleanupErrors = [];
+
+                if (await fs.pathExists(topicDataDir)) {
+                    try {
+                        await fs.remove(topicDataDir);
+                    } catch (error) {
+                        cleanupErrors.push(`history cleanup failed: ${error.message}`);
+                    }
+                }
+
+                try {
+                    await chatHistoryStore.deleteTopic(agentId, topicIdToDelete);
+                } catch (error) {
+                    cleanupErrors.push(`history database cleanup failed: ${error.message}`);
+                }
+
+                if (await fs.pathExists(topicNotesDir)) {
+                    try {
+                        await fs.remove(topicNotesDir);
+                    } catch (error) {
+                        cleanupErrors.push(`notes cleanup failed: ${error.message}`);
+                    }
+                }
+
+                if (knowledgeBaseId) {
+                    try {
+                        await knowledgeBase.deleteKnowledgeBase(knowledgeBaseId);
+                        const refreshedConfig = await agentConfigManager.readAgentConfig(agentId, { allowDefault: true });
+                        if (Array.isArray(refreshedConfig?.topics)) {
+                            remainingTopics = refreshedConfig.topics;
+                        }
+                    } catch (error) {
+                        cleanupErrors.push(`source cleanup failed: ${error.message}`);
+                    }
+                }
+
+                if (cleanupErrors.length > 0) {
+                    const warning = cleanupErrors.join('；');
+                    console.error(`Topic ${topicIdToDelete} for agent ${agentId} deleted with cleanup warnings: ${warning}`);
+                    return { success: true, remainingTopics, warning };
+                }
+
+                return { success: true, remainingTopics };
+            } else {
+                console.error(`AgentConfigManager not available, cannot safely delete topic for agent ${agentId}`);
+                return { error: 'AgentConfigManager is unavailable.' };
+            }
+        } catch (error) {
+            console.error(`Failed to delete topic ${topicIdToDelete} for agent ${agentId}:`, error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('handle-file-paste', async (event, agentId, topicId, fileData) => {
+        if (!topicId) return { error: 'Missing topicId.' };
+        try {
+            let storedFileObject;
+            if (fileData.type === 'path') {
+                const originalFileName = path.basename(fileData.path);
+                const ext = path.extname(fileData.path).toLowerCase();
+                let fileTypeHint = 'application/octet-stream';
+                if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+                    let mimeExt = ext.substring(1);
+                    if (mimeExt === 'jpg') mimeExt = 'jpeg';
+                    fileTypeHint = `image/${mimeExt}`;
+                } else if (['.mp3', '.wav', '.ogg', '.flac', '.aac', '.aiff'].includes(ext)) {
+                    const mimeExt = ext.substring(1);
+                    fileTypeHint = `audio/${mimeExt === 'mp3' ? 'mpeg' : mimeExt}`;
+                } else if (['.mp4', '.webm'].includes(ext)) {
+                    fileTypeHint = `video/${ext.substring(1)}`;
+                }
+
+                const fileManager = require('../fileManager');
+                storedFileObject = await fileManager.storeFile(fileData.path, originalFileName, agentId, topicId, fileTypeHint);
+            } else if (fileData.type === 'base64') {
+                const fileManager = require('../fileManager');
+                const originalFileName = `pasted_image_${Date.now()}.${fileData.extension || 'png'}`;
+                const buffer = Buffer.from(fileData.data, 'base64');
+                const fileTypeHint = `image/${fileData.extension || 'png'}`;
+                storedFileObject = await fileManager.storeFile(buffer, originalFileName, agentId, topicId, fileTypeHint);
+            } else {
+                throw new Error('Unsupported pasted file type.');
+            }
+            return { success: true, attachment: storedFileObject };
+        } catch (error) {
+            console.error('Failed to process pasted file:', error);
+            return { error: error.message };
+        }
+    });
+
+    ipcMain.handle('select-files-to-send', async (event, agentId, topicId) => {
+        if (!agentId || !topicId) {
+            console.error('[Main - select-files-to-send] Agent ID or Topic ID not provided.');
+            return { error: "Agent ID and Topic ID are required to select files." };
+        }
+
+        const listenerWasActive = getSelectionListenerStatus();
+        if (listenerWasActive) {
+            stopSelectionListener();
+            console.log('[Main] Temporarily stopped selection listener for file dialog.');
+        }
+
+        const result = await dialog.showOpenDialog(getMainWindow(), {
+            title: 'Select files to send',
+            properties: ['openFile', 'multiSelections']
+        });
+
+        if (listenerWasActive) {
+            startSelectionListener();
+            console.log('[Main] Restarted selection listener after file dialog.');
+        }
+
+        if (!result.canceled && result.filePaths.length > 0) {
+            const storedFilesInfo = [];
+            for (const filePath of result.filePaths) {
+                try {
+                    const originalName = path.basename(filePath);
+                    const ext = path.extname(filePath).toLowerCase();
+                    let fileTypeHint = 'application/octet-stream';
+                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(ext)) {
+                        let mimeExt = ext.substring(1);
+                        if (mimeExt === 'jpg') mimeExt = 'jpeg';
+                        fileTypeHint = `image/${mimeExt}`;
+                    } else if (['.mp3', '.wav', '.ogg', '.flac', '.aac', '.aiff'].includes(ext)) {
+                        const mimeExt = ext.substring(1);
+                        fileTypeHint = `audio/${mimeExt === 'mp3' ? 'mpeg' : mimeExt}`;
+                    } else if (['.mp4', '.webm'].includes(ext)) {
+                        fileTypeHint = `video/${ext.substring(1)}`;
+                    }
+
+                    const fileManager = require('../fileManager');
+                    const storedFile = await fileManager.storeFile(filePath, originalName, agentId, topicId, fileTypeHint);
+                    storedFilesInfo.push(storedFile);
+                } catch (error) {
+                    console.error(`[Main - select-files-to-send] Error storing file ${filePath}:`, error);
+                    storedFilesInfo.push({ name: path.basename(filePath), error: error.message });
+                }
+            }
+            return { success: true, attachments: storedFilesInfo };
+        }
+        return { success: false, attachments: [] };
+    });
+
+    ipcMain.handle('handle-text-paste-as-file', async (event, agentId, topicId, textContent) => {
+        if (!agentId || !topicId) return { error: 'Missing agentId or topicId.' };
+        if (typeof textContent !== 'string') return { error: 'Text content must be a string.' };
+
+        try {
+            const originalFileName = `pasted_text_${Date.now()}.txt`;
+            const buffer = Buffer.from(textContent, 'utf8');
+            const fileManager = require('../fileManager');
+            const storedFileObject = await fileManager.storeFile(buffer, originalFileName, agentId, topicId, 'text/plain');
+            return { success: true, attachment: storedFileObject };
+        } catch (error) {
+            console.error('[Main - handle-text-paste-as-file] Failed to convert pasted text into a file:', error);
+            return { error: `Failed to convert pasted text into a file: ${error.message}` };
+        }
+    });
+
+    ipcMain.handle('handle-file-drop', async (event, agentId, topicId, droppedFilesData) => {
+        if (!agentId || !topicId) return { error: 'Missing agentId or topicId.' };
+        if (!Array.isArray(droppedFilesData) || droppedFilesData.length === 0) return { error: 'No dropped files provided.' };
+
+        const storedFilesInfo = [];
+        for (const fileData of droppedFilesData) {
+            try {
+                // Check if we have a path or data. One of them must exist.
+                if (!fileData.data && !fileData.path) {
+                    console.warn('[Main - handle-file-drop] Skipping a dropped file due to missing data and path. fileData:', JSON.stringify(fileData));
+                    storedFilesInfo.push({ name: fileData.name || 'Unknown file', error: 'Missing file data and path.' });
+                    continue;
+                }
+
+                let fileSource;
+                if (fileData.path) {
+                    // If path is provided, use it as the source.
+                    fileSource = fileData.path;
+                } else {
+                    // Otherwise, use the buffer from data.
+                    fileSource = Buffer.isBuffer(fileData.data) ? fileData.data : Buffer.from(fileData.data);
+                }
+
+                let fileTypeHint = fileData.type;
+                const fileExtension = path.extname(fileData.name).toLowerCase();
+
+                // If file type is generic, try to guess from extension.
+                if (fileTypeHint === 'application/octet-stream' || !fileTypeHint) {
+                    if (['.png', '.jpg', '.jpeg', '.gif', '.webp'].includes(fileExtension)) {
+                        fileTypeHint = `image/${fileExtension.substring(1).replace('jpg', 'jpeg')}`;
+                    } else if (['.mp3', '.wav', '.ogg', '.flac', '.aac', '.aiff'].includes(fileExtension)) {
+                        const mimeExt = fileExtension.substring(1);
+                        fileTypeHint = `audio/${mimeExt === 'mp3' ? 'mpeg' : mimeExt}`;
+                    } else if (['.mp4', '.webm'].includes(fileExtension)) {
+                        fileTypeHint = `video/${fileExtension.substring(1)}`;
+                    } else if (['.md', '.txt'].includes(fileExtension)) {
+                        fileTypeHint = 'text/plain';
+                    }
+                }
+
+                console.log(`[Main - handle-file-drop] Attempting to store dropped file: ${fileData.name} (Type: ${fileTypeHint}) for Agent: ${agentId}, Topic: ${topicId}`);
+
+                const fileManager = require('../fileManager');
+                const storedFile = await fileManager.storeFile(fileSource, fileData.name, agentId, topicId, fileTypeHint);
+                storedFilesInfo.push({ success: true, attachment: storedFile, name: fileData.name });
+
+            } catch (error) {
+                console.error(`[Main - handle-file-drop] Error storing dropped file ${fileData.name || 'unknown'}:`, error);
+                console.error(`[Main - handle-file-drop] Full error details:`, error.stack);
+                storedFilesInfo.push({ name: fileData.name || 'Unknown file', error: error.message });
+            }
+        }
+        return storedFilesInfo;
+    });
+
+    ipcMain.handle('get-original-message-content', async (event, itemId, itemType, topicId, messageId) => {
+        if (!itemId || !itemType || !topicId || !messageId) {
+            return { success: false, error: 'Missing required identifiers.' };
+        }
+
+        try {
+            if (itemType !== 'agent') {
+                return { success: false, error: 'Unsupported item type.' };
+            }
+
+            const legacyHistoryPath = await ensureTopicHistoryDir(itemId, topicId);
+            const message = await chatHistoryStore.getMessageById(itemId, topicId, messageId, { legacyHistoryPath });
+            if (message) {
+                return { success: true, content: message.content };
+            }
+            return { success: false, error: 'Message not found in history.' };
+        } catch (error) {
+            console.error(`Failed to load original message content (itemId: ${itemId}, topicId: ${topicId}, messageId: ${messageId}):`, error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcMain.handle('send-chat-request', async (event, request) => {
+        const {
+            requestId,
+            endpoint,
+            apiKey,
+            messages,
+            modelConfig = {},
+            context = null,
+            executionMode: requestExecutionMode = '',
+            backgroundTasks = null,
+        } = request || {};
+
+        if (!request || typeof request !== 'object' || Array.isArray(request)) {
+            return { error: 'send-chat-request expects a request object.' };
+        }
+
+        let processedMessages;
+        try {
+            processedMessages = Array.isArray(messages)
+                ? messages.map(normalizeMessageForPreprocessing)
+                : [];
+        } catch (error) {
+            console.error('[Main - sendChatRequest] Message normalization failed:', error);
+            return { error: `Message normalization failed: ${error.message}` };
+        }
+
+        let settings = {};
+        try {
+            settings = settingsManager && typeof settingsManager.readSettings === 'function'
+                ? await settingsManager.readSettings()
+                : {};
+        } catch (error) {
+            console.error('[Main - sendChatRequest] Failed to read settings:', error);
+        }
+
+        const requestedPurpose = typeof modelConfig?.purpose === 'string'
+            && MODEL_SERVICE_DEFAULT_KEYS.includes(modelConfig.purpose.trim())
+            ? modelConfig.purpose.trim()
+            : 'chat';
+        const executionConfig = resolveExecutionConfig(settings, {
+            purpose: requestedPurpose,
+            requestedModel: modelConfig?.model,
+            requestedRef: modelConfig?.modelRef,
+            fallbackEndpoint: endpoint,
+            fallbackApiKey: apiKey,
+            fallbackModel: modelConfig?.fallbackModel || modelConfig?.model,
+        });
+        const finalModelConfig = buildFinalChatModelConfig(modelConfig, executionConfig, settings);
+        const fallbackExecution = resolveChatFallbackExecution(settings);
+
+        let promptVariableResolution = {
+            unresolvedTokens: [],
+            substitutions: {},
+            variableSources: {},
+            legacyTokenSuggestions: {},
+        };
+        let promptResolutionOptions = {
+            settings,
+            agentConfig: null,
+            context: { ...(context || {}) },
+            modelConfig: finalModelConfig,
+        };
+
+        try {
+            promptResolutionOptions = await buildPromptResolutionOptions({
+                settings,
+                context,
+                modelConfig: finalModelConfig,
+                agentConfigManager,
+                dataRoot: DATA_ROOT,
+                projectRoot: PROJECT_ROOT,
+            });
+        } catch (error) {
+            console.warn('[Main - sendChatRequest] Failed to pre-read agent context for DailyNote protocol injection:', error);
+        }
+
+        try {
+            if (settings.enableAgentBubbleTheme === true) {
+                processedMessages = applyAgentBubbleTheme(
+                    processedMessages,
+                    settings.agentBubbleThemePrompt
+                );
+            }
+
+            processedMessages = normalizeLegacyStudyLogPromptMessages(processedMessages);
+            processedMessages = applyEmoticonPrompt(processedMessages, settings, promptResolutionOptions);
+            const executionMode = resolveChatExecutionMode({
+                requestExecutionMode,
+                context,
+                messages: processedMessages,
+            });
+
+            if (executionMode === 'tool-orchestrated') {
+                processedMessages = applyDailyNoteProtocol(processedMessages, settings, promptResolutionOptions);
+            }
+
+            if (settings.enableThoughtChainInjection !== true) {
+                processedMessages = stripThoughtChains(processedMessages);
+            }
+
+            processedMessages = applyContextSanitizer(processedMessages, settings);
+            promptResolutionOptions.context = {
+                ...(promptResolutionOptions.context || {}),
+                executionMode,
+            };
+        } catch (error) {
+            console.error('[Main - sendChatRequest] Message preprocessing failed:', error);
+            return { error: `Message preprocessing failed: ${error.message}` };
+        }
+
+        try {
+            if (finalModelConfig && finalModelConfig.model) {
+                const modelUsageTracker = require('../modelUsageTracker');
+                await modelUsageTracker.recordModelUsage(finalModelConfig.model);
+            }
+        } catch (error) {
+            console.error('[ModelUsage] Failed to record model usage:', error);
+        }
+
+        try {
+            const resolution = resolvePromptMessageSet(processedMessages, promptResolutionOptions);
+            processedMessages = resolution.messages;
+            promptVariableResolution = {
+                unresolvedTokens: resolution.unresolvedTokens,
+                substitutions: resolution.substitutions,
+                variableSources: resolution.variableSources,
+                legacyTokenSuggestions: resolution.legacyTokenSuggestions || {},
+            };
+
+            if (resolution.unresolvedTokens.length > 0) {
+                console.warn(
+                    `[Main - sendChatRequest] Unresolved prompt variables for request ${requestId || 'unknown'}: ${resolution.unresolvedTokens.join(', ')}`
+                );
+            }
+        } catch (error) {
+            console.error('[Main - sendChatRequest] Prompt variable resolution failed:', error);
+                return { error: `Prompt variable resolution failed: ${error.message}` };
+        }
+
+        const studyProfile = settings.studyProfile || {};
+        const currentDate = promptVariableResolution.substitutions.CurrentDate
+            || new Date().toISOString().slice(0, 10);
+        const enrichedContext = {
+            ...(context || {}),
+            executionMode: promptResolutionOptions.context?.executionMode || resolveChatExecutionMode({
+                requestExecutionMode,
+                context,
+                messages: processedMessages,
+            }),
+            model: finalModelConfig?.model || context?.model || '',
+            topicName: promptVariableResolution.substitutions.TopicName || context?.topicName || '',
+            agentName: promptVariableResolution.substitutions.AgentName || context?.agentName || '',
+            studentName: studyProfile.studentName || settings.userName || '',
+            studyWorkspace: studyProfile.studyWorkspace || '',
+            workEnvironment: studyProfile.workEnvironment || '',
+            currentDate,
+        };
+
+        const topicTitleTask = resolveTopicTitleBackgroundTask({
+            backgroundTasks,
+            context: enrichedContext,
+            messages: processedMessages,
+            model: finalModelConfig?.model || '',
+            settings,
+        });
+        const scheduleTopicTitleTask = (completion) => {
+            if (!topicTitleTask) {
+                return;
+            }
+
+            void runTopicTitleBackgroundTask({
+                task: topicTitleTask,
+                completion,
+                settingsManager,
+                agentConfigManager,
+                webContents: event.sender,
+            });
+        };
+
+        const orchestrationResult = await studyServices.chatOrchestrator.runRequest({
+            requestId,
+            endpoint: executionConfig?.endpoint || endpoint,
+            apiKey: executionConfig?.apiKey || apiKey,
+            extraHeaders: executionConfig?.extraHeaders || {},
+            fallbackExecution,
+            messages: processedMessages,
+            modelConfig: finalModelConfig,
+            context: enrichedContext,
+            settings,
+            webContents: event.sender,
+            streamChannel: 'chat-stream-event',
+            executionMode: enrichedContext.executionMode,
+            onStreamEnd: (endResult = {}) => {
+                scheduleTopicTitleTask(endResult);
+            },
+        });
+
+        if (orchestrationResult?.error) {
+            return {
+                error: orchestrationResult.error,
+                promptVariableResolution,
+                toolEvents: orchestrationResult.toolEvents || [],
+                studyMemoryRefs: orchestrationResult.studyMemoryRefs || [],
+                fallbackMeta: orchestrationResult.fallbackMeta || null,
+            };
+        }
+
+        const waitsForDirectStreamEnd = enrichedContext.executionMode === 'direct-stream'
+            && finalModelConfig?.stream === true
+            && orchestrationResult?.streamingStarted === true
+            && !orchestrationResult?.fullResponse;
+        if (!waitsForDirectStreamEnd) {
+            scheduleTopicTitleTask(orchestrationResult || {});
+        }
+
+        return {
+            ...(orchestrationResult || {}),
+            toolEvents: orchestrationResult?.toolEvents || [],
+            studyMemoryRefs: orchestrationResult?.studyMemoryRefs || [],
+            fallbackMeta: orchestrationResult?.fallbackMeta || null,
+            promptVariableResolution,
+        };
+    });
+
+    ipcMain.handle('generate-follow-ups', async (_event, payload) => {
+        try {
+            const requestPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+                ? payload
+                : {};
+            const visibleMessages = selectVisibleFollowUpMessages(requestPayload.messages);
+            if (visibleMessages.length === 0) {
+                return { success: true, followUps: [] };
+            }
+
+            const settings = settingsManager && typeof settingsManager.readSettings === 'function'
+                ? await settingsManager.readSettings()
+                : {};
+            const configuredEndpoint = typeof settings?.chatEndpoint === 'string' ? settings.chatEndpoint.trim() : '';
+            const configuredApiKey = typeof settings?.chatApiKey === 'string' ? settings.chatApiKey.trim() : '';
+
+            const model = await resolveFollowUpModel({
+                agentId: requestPayload.agentId,
+                requestedModel: requestPayload.model,
+                settings,
+                agentConfigManager,
+            });
+            const executionConfig = resolveExecutionConfig(settings, {
+                purpose: 'followUp',
+                requestedModel: model,
+                fallbackEndpoint: configuredEndpoint,
+                fallbackApiKey: configuredApiKey,
+                fallbackModel: model,
+            });
+            const endpoint = executionConfig?.endpoint || configuredEndpoint;
+            const apiKey = executionConfig?.apiKey || configuredApiKey;
+            const fallbackExecution = resolveChatFallbackExecution(settings);
+            if (!endpoint) {
+                return { success: false, error: '模型服务配置不完整。', followUps: [] };
+            }
+
+            const prompt = buildFollowUpPrompt(settings.followUpPromptTemplate, visibleMessages);
+            const requestIdBase = `follow_up_${requestPayload.messageId || Date.now()}_${Date.now()}`;
+            const followUpContext = {
+                source: 'follow-up-generation',
+                agentId: requestPayload.agentId || '',
+                topicId: requestPayload.topicId || '',
+                messageId: requestPayload.messageId || '',
+            };
+
+            for (let attempt = 1; attempt <= FOLLOW_UP_MAX_ATTEMPTS; attempt += 1) {
+                const result = await requestFollowUpsOnce({
+                    attempt,
+                    requestIdBase,
+                    endpoint,
+                    apiKey,
+                    extraHeaders: executionConfig?.extraHeaders || {},
+                    fallbackExecution,
+                    prompt,
+                    model,
+                    context: followUpContext,
+                });
+
+                if (result.error) {
+                    return { success: false, error: result.error, followUps: [] };
+                }
+
+                if (result.followUps.length > 0) {
+                    return { success: true, followUps: result.followUps };
+                }
+
+                const rawPreview = String(result.rawContent || '').trim();
+                console.warn(
+                    `[Main - generate-follow-ups] Attempt ${attempt} returned ${rawPreview ? 'unparseable' : 'empty'} content for ${followUpContext.messageId || requestIdBase}.`
+                );
+                if (rawPreview) {
+                    console.warn(`[Main - generate-follow-ups] Raw preview: ${rawPreview.slice(0, 240)}`);
+                }
+            }
+
+            return { success: true, followUps: [] };
+        } catch (error) {
+            console.error('[Main - generate-follow-ups] Failed:', error);
+            return { success: false, error: error.message, followUps: [] };
+        }
+    });
+
+    ipcMain.handle('generate-topic-title', async (_event, payload) => {
+        try {
+            const requestPayload = payload && typeof payload === 'object' && !Array.isArray(payload)
+                ? payload
+                : {};
+            return await generateTopicTitleResult({
+                settingsManager,
+                agentConfigManager,
+                requestPayload,
+            });
+        } catch (error) {
+            console.error('[Main - generate-topic-title] Failed:', error);
+            return {
+                success: true,
+                generated: false,
+                title: extractFirstUserTitleFallback(payload?.messages),
+                error: error.message,
+            };
+        }
+    });
+
+    ipcMain.handle('interrupt-chat-request', async (_event, request) => {
+        if (!request || typeof request !== 'object' || Array.isArray(request)) {
+            return { success: false, error: 'interrupt-chat-request expects a request object.' };
+        }
+
+        const requestId = request.requestId;
+        const localInterrupted = studyServices?.chatOrchestrator?.abortSyntheticRequest?.(requestId) === true;
+        const remoteResult = await chatClient.interrupt(request);
+
+        if (localInterrupted && !remoteResult?.success) {
+            return {
+                success: true,
+                requestId,
+                localAborted: true,
+                remoteAttempted: remoteResult?.remoteAttempted || false,
+                remoteSucceeded: remoteResult?.remoteSucceeded || false,
+                warning: remoteResult?.error || remoteResult?.warning || '',
+            };
+        }
+
+        return remoteResult;
+    });
+
+    /**
+     * Part C: 鏅鸿兘璁℃暟閫昏緫杈呭姪鍑芥暟
+     * 鍒ゆ柇鏄惁搴旇婵€娲昏锟?
+     * 瑙勫垯锛氫笂涓嬫枃锛堟帓闄ょ郴缁熸秷鎭級鏈変笖鍙湁涓€锟?AI 鐨勫洖澶嶏紝涓旀病鏈夌敤鎴峰洖锟?
+     * @param {Array} history - 娑堟伅鍘嗗彶
+     * @returns {boolean}
+     */
+    function shouldActivateCount(history) {
+        if (!history || history.length === 0) return false;
+
+        // 杩囨护鎺夌郴缁熸秷锟?
+        const nonSystemMessages = history.filter(msg => msg.role !== 'system');
+
+        // 蹇呴』鏈変笖鍙湁涓€鏉℃秷鎭紝涓旇娑堟伅锟?AI 鍥炲
+        return nonSystemMessages.length === 1 && nonSystemMessages[0].role === 'assistant';
+    }
+
+    /**
+     * Part C: 璁＄畻鏈娑堟伅鏁伴噺
+     * @param {Array} history - 娑堟伅鍘嗗彶
+     * @returns {number}
+     */
+    function countUnreadMessages(history) {
+        return shouldActivateCount(history) ? 1 : 0;
+    }
+
+    /**
+     * Part C: 璁＄畻鍗曚釜璇濋鐨勬湭璇绘秷鎭暟
+     * @param {Object} topic - 璇濋瀵硅薄
+     * @param {Array} history - 璇濋鍘嗗彶娑堟伅
+     * @returns {number} - 鏈娑堟伅鏁帮紝-1 琛ㄧず浠呮樉绀哄皬锟?
+     */
+    function calculateTopicUnreadCount(topic, history) {
+        // 浼樺厛妫€鏌ヨ嚜鍔ㄨ鏁版潯浠讹紙AI鍥炲浜嗕絾鐢ㄦ埛娌″洖锟?
+        if (shouldActivateCount(history)) {
+            const count = countUnreadMessages(history);
+            if (count > 0) return count;
+        }
+
+        // 濡傛灉涓嶆弧瓒宠嚜鍔ㄨ鏁版潯浠讹紝浣嗚鎵嬪姩鏍囪涓烘湭璇伙紝鍒欐樉绀哄皬锟?
+        if (topic.unread === true) {
+            return -1; // 浠呮樉绀哄皬鐐癸紝涓嶆樉绀烘暟锟?
+        }
+
+        return 0; // 涓嶆樉锟?
+    }
+
+    ipcMain.handle('get-unread-topic-counts', async () => {
+        const counts = {};
+        try {
+            const agentDirs = await fs.readdir(AGENT_DIR, { withFileTypes: true });
+            for (const dirent of agentDirs) {
+                if (dirent.isDirectory()) {
+                    const agentId = dirent.name;
+                    let totalCount = 0;
+                    let hasUnreadMarker = false; // 鐢ㄤ簬鏍囪鏄惁鏈夋湭璇绘爣璁颁絾鏃犺锟?
+                    const configPath = path.join(AGENT_DIR, agentId, 'config.json');
+
+                    if (await fs.pathExists(configPath)) {
+                        const config = await fs.readJson(configPath);
+                        if (config.topics && Array.isArray(config.topics)) {
+                            for (const topic of config.topics) {
+                                if (!topic?.id) {
+                                    continue;
+                                }
+                                try {
+                                    const historyPath = getLegacyHistoryPath(agentId, topic.id);
+                                    const summary = await chatHistoryStore.getUnreadSummary(agentId, topic.id, { legacyHistoryPath: historyPath });
+                                    const topicCount = summary.shouldActivateCount
+                                        ? 1
+                                        : (topic.unread === true ? -1 : 0);
+                                    if (topicCount > 0) {
+                                        totalCount += topicCount;
+                                    } else if (topicCount === -1) {
+                                        // 鏈夋湭璇绘爣璁颁絾鏃犺鏁帮紝璁板綍杩欎釜鐘讹拷?
+                                        hasUnreadMarker = true;
+                                    }
+                                } catch (historyError) {
+                                    console.error(`Failed to read chat history summary for ${agentId}/${topic.id}:`, historyError);
+                                }
+                            }
+                        }
+                    }
+
+                    // 濡傛灉鏈夎鏁帮紝鏄剧ず鏁板瓧
+                    if (totalCount > 0) {
+                        counts[agentId] = totalCount;
+                    } else if (hasUnreadMarker) {
+                        // 濡傛灉鍙湁鏈鏍囪娌℃湁璁℃暟锛岃繑锟?0锛堝墠绔細璇嗗埆涓轰粎鏄剧ず灏忕偣锟?
+                        counts[agentId] = 0;
+                    }
+                }
+            }
+            return { success: true, counts };
+        } catch (error) {
+            console.error('Failed to compute unread topic counts:', error);
+            return { success: false, error: error.message, counts: {} };
+        }
+    });
+
+    // Toggle topic lock state.
+    ipcMain.handle('toggle-topic-lock', async (event, agentId, topicId) => {
+        try {
+            const agentConfigPath = path.join(AGENT_DIR, agentId, 'config.json');
+            if (!await fs.pathExists(agentConfigPath)) {
+                return { success: false, error: `Agent config file not found for ${agentId}.` };
+            }
+
+            if (agentConfigManager) {
+                const result = await agentConfigManager.updateTopic(agentId, topicId, (topic) => {
+                    const currentLocked = topic.locked === undefined ? true : topic.locked;
+                    return {
+                        ...topic,
+                        locked: !currentLocked,
+                    };
+                });
+
+                return {
+                    success: true,
+                    locked: result.topic.locked,
+                    message: result.topic.locked ? 'Topic locked.' : 'Topic unlocked.'
+                };
+            }
+
+            let config;
+            try {
+                config = await fs.readJson(agentConfigPath);
+            } catch (e) {
+                console.error(`Failed to read agent config for ${agentId} (toggle-topic-lock):`, e);
+                return { success: false, error: `Failed to read config file: ${e.message}` };
+            }
+
+            if (!config.topics || !Array.isArray(config.topics)) {
+                return { success: false, error: 'Topics are unavailable for this agent.' };
+            }
+
+            const topic = config.topics.find(t => t.id === topicId);
+            if (!topic) {
+                return { success: false, error: `Topic not found: ${topicId}` };
+            } else {
+                // Part A: 鍘嗗彶鏁版嵁鍏煎 - 濡傛灉璇濋娌℃湁 locked 瀛楁锛岄粯璁よ缃负 true
+                if (topic.locked === undefined) {
+                    topic.locked = true;
+                }
+
+                // Toggle the lock flag.
+                topic.locked = !topic.locked;
+
+                await fs.writeJson(agentConfigPath, config, { spaces: 2 });
+
+                return {
+                    success: true,
+                    locked: topic.locked,
+                    message: topic.locked ? 'Topic locked.' : 'Topic unlocked.'
+                };
+            }
+        } catch (error) {
+            console.error('[toggleTopicLock] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    // Set topic unread state.
+    ipcMain.handle('set-topic-unread', async (event, agentId, topicId, unread) => {
+        try {
+            const agentConfigPath = path.join(AGENT_DIR, agentId, 'config.json');
+            if (!await fs.pathExists(agentConfigPath)) {
+                return { success: false, error: `Agent config file not found for ${agentId}.` };
+            }
+
+            if (agentConfigManager) {
+                const result = await agentConfigManager.updateTopic(agentId, topicId, (topic) => {
+                    const normalizedTopic = topic.unread === undefined
+                        ? { ...topic, unread: false }
+                        : topic;
+                    return {
+                        ...normalizedTopic,
+                        unread,
+                    };
+                });
+
+                return { success: true, unread: result.topic.unread };
+            }
+
+            let config;
+            try {
+                config = await fs.readJson(agentConfigPath);
+            } catch (e) {
+                console.error(`Failed to read agent config for ${agentId} (set-topic-unread):`, e);
+                return { success: false, error: `Failed to read config file: ${e.message}` };
+            }
+
+            if (!config.topics || !Array.isArray(config.topics)) {
+                return { success: false, error: 'Topics are unavailable for this agent.' };
+            }
+
+            const topic = config.topics.find(t => t.id === topicId);
+            if (!topic) {
+                return { success: false, error: `Topic not found: ${topicId}` };
+            } else {
+                // Part A: 鍘嗗彶鏁版嵁鍏煎 - 濡傛灉璇濋娌℃湁 unread 瀛楁锛岄粯璁よ缃负 false
+                if (topic.unread === undefined) {
+                    topic.unread = false;
+                }
+
+                topic.unread = unread;
+                await fs.writeJson(agentConfigPath, config, { spaces: 2 });
+
+                return { success: true, unread: topic.unread };
+            }
+        } catch (error) {
+            console.error('[setTopicUnread] Error:', error);
+            return { success: false, error: error.message };
+        }
+    });
+
+    ipcHandlersRegistered = true;
+}
+
+async function shutdown() {
+    if (!chatHistoryStore || typeof chatHistoryStore.close !== 'function') {
+        return;
+    }
+
+    await chatHistoryStore.close();
+    chatHistoryStore = null;
+}
+
+module.exports = {
+    __testUtils: {
+        buildFollowUpPrompt,
+        buildTopicTitlePrompt,
+        extractFirstUserTitleFallback,
+        formatFollowUpChatHistory,
+        parseFollowUpsResponse,
+        parseTopicTitleResponse,
+        generateTopicTitleResult,
+        isSuccessfulTopicTitleCompletion,
+        persistTopicTitleWithGuard,
+        resolveTopicTitleBackgroundTask,
+        resolveFollowUpModel,
+        resolveTaskModel,
+        runTopicTitleBackgroundTask,
+        sanitizeFollowUpText,
+        selectVisibleFollowUpMessages,
+        requestFollowUpsOnce,
+        resolveChatExecutionMode,
+    },
+    initialize,
+    shutdown,
+};

@@ -1,0 +1,274 @@
+# UniStudy 当前开发状态
+
+更新时间: 2026-04-27
+仓库路径: `C:\VCP\Eric\edu_chat_project`
+
+## 当前结论
+UniStudy 当前已完成运行时身份收口，并继续向“个人 AI 学习终端”演进。本轮重点补强了聊天渲染底层、Source 引用链路、历史差分同步、预览生命周期和长对话资源控制。
+
+## 产品定位与学习闭环
+UniStudy 的目标不是再做一个普通 AI 聊天软件，而是打造一个本地优先、模型可选、资料驱动、具备长期记忆的个人 AI 学习空间。
+
+项目早期参考 NotebookLM 的资料型学习体验: 用户可以围绕资料提问、总结和理解。但 UniStudy 的定位不是简单复刻 NotebookLM，而是在它的基础上补足个人学习场景中的几个关键缺口:
+- 本地优先: 学习资料、对话、笔记和记忆应尽量由用户自己掌控。
+- 模型可选: 用户可以根据效果、成本、速度和隐私需求自由选择 OpenAI-compatible 服务、本地模型或其他兼容 Provider。
+- 话题连续: 学习天然按学科、主题、阶段和问题线索组织，因此需要 Agent / Topic 这样的上下文结构。
+- AI 不只检索资料: Source 提供依据，AI 也应结合自身知识储备进行解释、类比、迁移和教学设计。
+- 长期记忆: AI 应能在用户授权和可管理的边界内记录学习目标、偏好、薄弱点和长期进展。
+
+UniStudy 的学习闭环可以概括为:
+
+```text
+Source 资料进入
+  -> Chat 对话学习
+  -> Render 交互式理解
+  -> Notes 笔记沉淀
+  -> Practice 测验 / 闪卡 / 复习
+  -> Memory 学习记忆更新
+  -> 下一次 Topic / Agent 学习继续接上
+```
+
+也可以简写为:
+
+```text
+Source -> Chat -> Render -> Notes -> Practice -> Memory
+```
+
+这条闭环是后续功能取舍的核心标准: 新功能应尽量服务于资料进入、理解发生、内容沉淀、复习反馈和长期连续性，而不是只增加孤立的工具入口。
+
+## 交互式渲染作为核心差异
+UniStudy 最需要提前强调的能力，是让 AI 不只生成文字答案，而是生成可交互的学习界面。
+
+传统 AI 学习产品大多仍停留在文字聊天: 用户提问，AI 返回解释、总结、列表或引用。这样的问答有价值，但它把大量知识都压缩成语言，用户仍需要在脑中自行完成抽象转换。很多学习内容并不适合只靠文字理解，例如数学映射、函数变化、几何关系、物理运动、电场、算法执行过程、生物结构、历史时间线和语言场景。
+
+因此，UniStudy 的核心判断是:
+
+> AI 不应该只生成答案，它还应该为当前问题生成一个可以互动的学习场景。
+
+在 UniStudy 中，AI 的输出可以从普通文本扩展为可渲染的前端内容。它可以根据当前学习问题，即时生成:
+- 可点击的概念卡片
+- 分步骤展开的证明或推理过程
+- 数学模型、集合映射和函数变化演示
+- 可调参数的物理模拟器
+- 流程图、时间线、关系网络和知识拆解面板
+- 带按钮和即时反馈的练习界面
+- 动画演示、可视化图表和 3D 模型
+
+这意味着学习体验从“我问，AI 答”转变为“我提出问题，AI 为这个问题生成一个临时学习工具”。
+
+例如:
+- 用户问“四个蛋糕如何分给四个小朋友”，AI 可以生成蛋糕集合、小朋友集合和映射关系的可视化模型，帮助用户比较一一对应、多人共享、有人未分到等情况。
+- 用户问“为什么导数代表瞬时变化率”，AI 可以生成曲线、割线、切线和逐渐缩小的 `delta x` 动态演示。
+- 用户问“这个算法为什么会超时”，AI 可以生成执行过程动画，让循环、递归和状态变化一步步展开。
+
+这一点也是 UniStudy 和 NotebookLM 的关键区别:
+
+```text
+NotebookLM 让 AI 帮用户理解资料。
+UniStudy 让 AI 帮用户生成理解资料的学习场景。
+```
+
+因此，交互式渲染不应被视为普通消息渲染的附属功能，而应作为 UniStudy 的核心产品能力之一，与 Source、Topic、Notes、Practice 和 Memory 一起构成学习闭环。
+
+## 2026-04-26 VCPChat 渲染链路对照
+本轮排查重点对照了 `C:\VCP\VCPChat` 中的流式渲染路径，主要参考:
+- `modules\renderer\streamManager.js`
+- `modules\messageRenderer.js`
+- `modules\renderer\contentProcessor.js`
+
+对照结论:
+- VCPChat 的流式阶段采用 stable / tail 双区结构。只有已经闭合的代码块、工具请求块、工具结果块和桌面推送块会进入 stable root；未闭合内容继续留在 tail root 中轻量重绘。
+- VCPChat 普通聊天气泡里的交互式渲染不是 desktop push，也不是流式 iframe 预览；它依赖模型按 `{{VarDivRender}}` 输出裸 HTML 片段，然后由 `marked.parse()` / `morphdom` 在 tail root 中边流式边变成 DOM。
+- 完整高保真渲染只在消息最终完成后执行: `messageRenderer -> preprocessFullContent -> marked.parse -> processRenderedContent -> setupHtmlPreview`。
+- HTML 预览按钮和 iframe 属于完整后处理能力，只适合处理明确的 fenced HTML / doctype 完整网页源码，不应拦截普通聊天中的裸 `<div id="response-root">` 渲染片段。否则最终重绘时很容易把正在显示的 iframe 或按钮状态替换掉，表现为“渲染出来又消失”。
+- 工具请求块不同于 HTML iframe。工具块在 `<<<[END_TOOL_REQUEST]>>>` 到达后已经具备完整边界，可以立即进入 stable root 并通过 Markdown / 特殊块处理提前美化，不必等整条回复结束。
+
+本次 UniStudy 发现的实际断点:
+- `ensureHtmlFenced()` 在迁移后留下了错误保护标记占位，导致 `「始」/「末」` 与 `「始ESCAPE」/「末ESCAPE」` 内的内容保护不可靠。
+- 直接输出 `<!DOCTYPE html> ... </html>` 会被包成 ` ```html ` 代码块，但 `ensureNewlineAfterCodeBlock()` 又把合法的 ` ```html ` 拆成普通围栏加一行 `html` 文本，导致后续 `<code>` 失去 `language-html`，`setupHtmlPreview()` 无法识别并创建播放按钮。
+- 后续又尝试在 stream tail 中把裸 HTML 或未闭合 fenced HTML 改造成 iframe 预览，这偏离了 VCPChat 普通聊天路径，也是“边渲染边输出”没有对齐预期的主要原因。
+
+当前修复原则:
+- 保留 VCPChat 的流式架构边界: 流式阶段不主动把裸 HTML 包成 iframe，而是让裸 HTML 直接通过 `marked.parse()` / `morphdom` 进入当前消息 DOM。
+- 默认渲染提示词要求模型输出 `<div id="response-root">` 等 HTML 片段，不输出 ` ```html ` 代码围栏，也不输出 `<!DOCTYPE html>`、`<html>`、`<head>`、`<body>` 完整网页外壳。
+- `ensureNewlineAfterCodeBlock()` 必须保留合法代码块 info string，例如 ` ```html `、` ```js `、` ```mermaid `。
+- `ensureHtmlFenced()` 仅处理 `<!DOCTYPE html> ... </html>` 这类完整网页源码；普通 `<div>` / `<section>` / `<svg>` / `<html>` 片段保持裸 HTML，避免被误转成代码预览。
+- 工具请求文本在流式阶段可以正常可见；当 `<<<[END_TOOL_REQUEST]>>>` 到达后，允许立即稳定并美化成学习日志 / 工具卡片。
+
+后续实现和文档表达中，可以优先使用以下定位语句:
+- UniStudy 不是让 AI 只回答问题，而是让 AI 为每个问题生成一个可以互动的学习场景。
+- 从 AI 聊天，到 AI 生成学习界面。
+- 让知识不只被解释，而是被看见、被操作、被体验。
+
+当前正式边界如下:
+- 保留多学科入口、多话题历史、高保真渲染
+- 保留流式请求、中断、Markdown 导出、附件集中存储、图片 / 文本 viewer
+- 新增 Source 面板、Notes 面板、消息收藏与学习工具入口
+- Prompt 在当前版本中固定为单文本模式
+- 正式运行时默认使用 Electron `app.getPath('userData')` 下的 UniStudy 数据目录
+- 应用级显式 override 统一使用 `UNISTUDY_DATA_ROOT`
+
+## 2026-04-27 渲染底层与学习链路补强
+本轮工作目标是让 UniStudy 的核心卖点更稳定: AI 可以边输出边形成可交互学习内容，同时 Source、Notes、学习日志、记忆和长对话渲染不互相打架。
+
+已落地内容:
+- 流式渲染保留 `reasoning / stable / tail` 三个独立 root。原生思维链流式区不再和正文 DOM 争位置，reasoning-only 增量不会重复触发正文 morphdom。
+- 裸 HTML 片段支持在流式阶段直接进入消息 DOM，`<style>` 在流式阶段允许临时生效；最终完成后仍由消息渲染器做 scoped CSS 收口，避免长期污染全局样式。
+- 流式完成后只保留一次最终 DOM 渲染路径，减少“先渲染、再闪一下、又消失”的重灌感。
+- HTML 代码块预览补齐播放 / 返回、iframe 高度回传、加载状态、错误状态和销毁清理；Three.js 预览保留本地 vendor runner，并增加 vendor、WebGL、运行时错误和空白 canvas 诊断。
+- 历史文件 watcher 从整话题重载升级为当前话题 message-id 差分同步: 修改、删除、新增和安全重排都尽量局部更新；正在流式输出或正在编辑的消息会被保护。
+- Source 面板支持更清晰的当前话题资料选择和复用策略，检索返回的引用会进入消息历史，便于后续展示和追溯。
+- Notes 与学习工具链路继续保留: 笔记、测验、闪卡、学习日志、日记投影和记忆相关能力都在现有渲染路径下回归通过。
+- 长对话资源控制继续加固: 可见性优化器增加调试快照和测试覆盖，预览 iframe、动画、media、canvas / Three 相关运行态在 DOM 替换或删除前会主动清理。
+- 内存稳定性补丁已落地: morphdom 元素长度缓存改为 `WeakMap`，头像裁剪和设置页头像预览的 `Blob URL` 会在加载、失败、关闭、重选或页面卸载时释放。
+
+当前验证结果:
+- `npm run test:renderer:logic`: 144 passed
+- `npm run test:renderer:dom`: 3 passed
+- `git diff --check`: clean
+
+## Tool Request 与 DailyNote 机制
+Tool Request 是 UniStudy 让模型在普通聊天中调用本地学习工具的轻量协议。模型仍然输出一条普通 assistant 消息，但当消息中出现完整工具块时，主进程会把工具块解析出来，执行本地工具，并把执行结果作为下一轮上下文交回模型。
+
+工具块边界固定为:
+
+```text
+<<<[TOOL_REQUEST]>>>
+key:「始」value「末」,
+...
+<<<[END_TOOL_REQUEST]>>>
+```
+
+当前解析入口在 `src/modules/main/study/toolProtocol.js`:
+- `parseToolRequests(rawContent)` 扫描 assistant 原文，提取一个或多个完整工具块。
+- `parseDelimitedBlock()` 按 `key:「始」value「末」` 解析字段，字段值支持多行。
+- `normalizeProtocolArgs()` 统一输出工具参数对象，缺省字段补为空字符串，供运行时稳定读取。
+- 普通回复内容仍可继续流式显示；工具块在结束标记到达后具备完整边界，可以被 renderer 美化成工具卡片。
+
+Tool Request 的主流程如下:
+
+```text
+模型输出 assistant 消息
+  -> chatOrchestrator 调用 parseToolRequests()
+  -> 可见正文继续作为聊天内容渲染
+  -> studyToolRuntime.executeToolRequest() 执行本地工具
+  -> buildToolPayloadMessage() 生成工具执行结果消息
+  -> 下一轮模型基于工具结果继续正常对话
+```
+
+DailyNote 是当前 Tool Request 中用于写入学习日志 / 日记的工具。模型应使用 `tool_name: DailyNote`，并通过 `command` 区分创建和更新。
+
+创建日志使用 `command: create`，核心字段为:
+- `subject`: 学习主题与署名，格式建议为 `[学习主题或日记本名]Agent署名`。
+- `Date`: 日志日期，格式为 `YYYY-MM-DD`。
+- `Content`: 日志正文。常规日志应以 `[HH:MM]` 开头，正文中可以自然包含多行内容。
+- `Tag`: 可选标签。标签可以写在独立 `Tag` 字段中，也可以写在 `Content` 末尾的 `Tag:` 行中；独立字段优先。
+- `archery`: 工具执行后的回复策略，常用 `no_reply` 表示工具只记录，不额外打断当前回答。
+
+示例:
+
+```text
+<<<[TOOL_REQUEST]>>>
+subject:「始」[数学错题]Nova「末」,
+tool_name:「始」DailyNote「末」,
+command:「始」create「末」,
+Date:「始」2026-04-27「末」,
+Content:「始」[09:30] 今天复盘了二次函数顶点式，发现配方法的符号容易写反。
+Tag: 数学, 二次函数, 错题复盘「末」,
+archery:「始」no_reply「末」
+<<<[END_TOOL_REQUEST]>>>
+```
+
+该工具块解析后，DailyNote 运行时会得到:
+
+```json
+{
+  "subject": "[数学错题]Nova",
+  "Date": "2026-04-27",
+  "Content": "[09:30] 今天复盘了二次函数顶点式，发现配方法的符号容易写反。\nTag: 数学, 二次函数, 错题复盘",
+  "Tag": "",
+  "archery": "no_reply",
+  "target": "",
+  "replace": "",
+  "title": "",
+  "summary": "",
+  "fileName": ""
+}
+```
+
+`src/modules/main/study/studyToolRuntime.js` 会进一步解析 `subject`:
+- `subjectRaw` 保留原始值，例如 `[数学错题]Nova`。
+- `notebookName` 来自方括号内的主题，例如 `数学错题`。
+- `notebookId` 根据主题生成，用于定位同一个日记本 / 学习日志集合。
+- `subjectSignature` 来自方括号后的署名，例如 `Nova`。
+
+写入链路如下:
+
+```text
+DailyNote create
+  -> studyToolRuntime 构造规范日志对象
+  -> studyLogStore.writeEntry() 写入 StudyLogs
+  -> studyDiaryProjector 重建当天 StudyDiary
+  -> 日记墙从 StudyDiary 投影生成 cards/detail
+  -> 学习记忆检索可读取同一批 StudyLogs / StudyDiary 数据
+```
+
+更新日志使用 `command: update`:
+- `subject` 用于确定目标日记本 / 学习主题范围。
+- `Date` 用于限定当天日志。
+- `target` 是要替换的原文片段，要求足够长以避免误替换。
+- `replace` 是替换后的新内容。
+- 更新成功后会同步重建当天的 StudyDiary，使日记墙和详情页看到最新内容。
+
+DailyNote 的日记投影由 `src/modules/main/study/studyDiaryProjector.js` 负责:
+- 每天的 StudyLogs 会被聚合为 StudyDiary markdown。
+- markdown 中保留 `Subject: ...` 行，便于排查来源。
+- `listDiaryWallCards()` 返回日记墙卡片数据，卡片中包含 `subjectSignatures`，用于展示该日记涉及的 Agent / 署名。
+- renderer 侧的日记墙、日志页和工作区概览只消费投影结果，不直接改写底层日志。
+
+当前命名规则:
+- Tool Request 新协议只使用 `subject` 表达学习主题与署名。
+- 新写入数据只使用 `subjectRaw`、`subjectSignature`、`subjectSignatures` 等字段。
+- 新提示词、测试、脚本和文档不应再引入旧字段名；如果需要兼容历史数据，应在读取层做显式转换，并避免把旧字段重新写回新数据。
+
+## 当前架构边界
+### 主运行链
+- `src/main/main.js`: Electron 启动、窗口装配、主进程 handler 注册
+- `src/preloads/lite.js`: preload 暴露面
+- `src/renderer/index.html`: 主页面入口
+- `src/renderer/renderer.js`: UniStudy renderer 壳层与页面交互
+
+### 模块归属
+- `src/modules/main/`: 主进程专属模块
+- `src/modules/shared/`: 真正跨运行时共享的对象
+- `src/modules/renderer/`: renderer / viewer / 渲染辅助模块
+
+## 本轮已落地
+### 品牌与布局
+- UI 主品牌已切换为 `UniStudy`
+- 顶部导航显示当前学科与当前话题
+- 右侧功能区已调整为 `Source / Notes / 设置` 三标签结构
+
+### Source
+- 继续复用现有 knowledge base 底层实现
+- 用户侧主文案已切换为 `Source`
+- 当前话题可独立绑定来源资料
+- 资料上传上限已增加软限制，默认 50 个
+
+### Notes
+- 新增笔记持久化存储与主进程 IPC
+- 支持当前 Topic 笔记列表
+- 支持当前 Agent 聚合笔记视图
+- 支持从聊天气泡收藏并生成笔记
+- 支持笔记深度分析、选择题、闪卡生成
+
+### 聊天
+- 保留现有消息渲染与流式主链
+- 消息对象新增收藏与笔记引用元数据
+- 气泡区新增学习操作按钮
+
+## 仍待继续深化
+- Source 底层字段仍保留 `knowledgeBaseId` 兼容命名
+- Notes 当前未实现富文本编辑器
+- 学习工具当前仅生成 Markdown 结果，不包含专项练习工作流
+- 资料型生成仍以“选中笔记优先、Source 回退”为主，不是独立题库系统

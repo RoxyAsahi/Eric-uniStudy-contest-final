@@ -1,0 +1,1323 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta
+    http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: file: http: https:; connect-src 'self' data: blob: http://127.0.0.1:*; frame-src 'self' http://127.0.0.1:*; object-src 'none'; base-uri 'self'; form-action 'self';"
+  />
+  <title>UniStudy</title>
+  <link rel="stylesheet" href="../../vendor/katex.min.css" />
+  <link rel="stylesheet" href="../../vendor/atom-one-light.min.css" />
+  <link rel="stylesheet" href="../styles/messageRenderer.css" />
+  <link rel="stylesheet" href="../styles/notifications.css" />
+  <link rel="stylesheet" href="../Promptmodules/prompt-modules.css" />
+  <link rel="stylesheet" href="styles/tokens.css" />
+  <link rel="stylesheet" href="styles/shell.css" />
+  <link rel="stylesheet" href="styles/workspace.css" />
+  <link rel="stylesheet" href="styles/reader.css" />
+  <link rel="stylesheet" href="styles/chat.css" />
+  <link rel="stylesheet" href="styles/sidepanel.css" />
+  <link rel="stylesheet" href="styles/responsive.css" />
+</head>
+<body class="light-theme unistudy-shell">
+  <div id="appBootLoading" class="app-boot-loading" aria-live="polite" aria-hidden="false">
+    <div class="app-boot-loading__stage">
+      <div class="app-boot-loading__brand">
+        <div class="app-boot-loading__logo-wrap" aria-hidden="true">
+          <div class="app-boot-loading__orbit"></div>
+          <img class="app-boot-loading__logo" src="../assets/logo.png" alt="" />
+          <div class="app-boot-loading__pulse"></div>
+          <div class="app-boot-loading__pulse app-boot-loading__pulse--delayed"></div>
+        </div>
+        <img class="app-boot-loading__wordmark" src="../assets/UniStudy.png" alt="" />
+        <div class="app-boot-loading__subtitle">正在准备学习工作台</div>
+        <div class="app-boot-loading__hint">
+          <span class="app-boot-loading__dot"></span>
+          <span class="app-boot-loading__dot"></span>
+          <span class="app-boot-loading__dot"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="window-shell">
+    <header class="titlebar">
+      <div class="titlebar__tabs" aria-label="主导航">
+        <div class="titlebar__brand-main">
+          <img class="brand-mark" src="../assets/brand-logo.png" alt="UniStudy logo" />
+          <div>
+            <div class="titlebar__title">UniStudy</div>
+            <div class="titlebar__subtitle">个人 AI 学习终端</div>
+          </div>
+        </div>
+        <button id="workspaceBackToOverviewBtn" class="ghost-button icon-text-btn titlebar__home-btn titlebar__tab" type="button">
+          <span class="material-symbols-outlined">home</span>
+          <span class="titlebar__tab-text">首页</span>
+        </button>
+        <div class="titlebar__workspace">
+          <button id="workspaceOpenSubjectBtn" class="ghost-button titlebar__context-card titlebar__context-card--topic titlebar__tab titlebar__tab--active" type="button">
+            <span class="material-symbols-outlined titlebar__tab-icon" aria-hidden="true">chat_bubble</span>
+            <div class="titlebar__tab-copy">
+              <strong id="titlebarCurrentAgent">未选择学科</strong>
+              <span class="titlebar__context-separator" aria-hidden="true">|</span>
+              <strong id="titlebarCurrentTopic">请选择一个话题</strong>
+            </div>
+          </button>
+          <button id="manualNotesLibraryBtn" class="ghost-button titlebar__context-card titlebar__context-card--action titlebar__tab" type="button">
+            <span class="material-symbols-outlined titlebar__tab-icon" aria-hidden="true">event_note</span>
+            <div class="titlebar__tab-copy">
+              <span class="titlebar__context-label">笔记</span>
+              <strong>我的笔记</strong>
+            </div>
+          </button>
+        </div>
+      </div>
+      <div class="titlebar__meta">
+        <button id="openDiaryWallBtn" class="ghost-button icon-btn hidden" title="日记墙" aria-hidden="true" tabindex="-1"><span class="material-symbols-outlined">auto_stories</span></button>
+        <button id="globalSettingsBtn" class="titlebar-settings-pill" title="设置">
+          <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+          <span>设置</span>
+        </button>
+        <button id="themeToggleBtn" class="ghost-button icon-btn hidden" title="切换主题" aria-hidden="true" tabindex="-1"><span class="material-symbols-outlined">dark_mode</span></button>
+        <button id="minimize-btn" class="window-button"><span class="material-symbols-outlined" style="font-size: 16px;">remove</span></button>
+        <button id="maximize-btn" class="window-button"><span class="material-symbols-outlined" style="font-size: 14px;">crop_square</span></button>
+        <button id="close-btn" class="window-button window-button--danger"><span class="material-symbols-outlined" style="font-size: 18px;">close</span></button>
+      </div>
+    </header>
+
+    <div class="workspace-pages">
+      <section id="workspaceOverviewPage" class="workspace-overview-page">
+        <div class="workspace-overview-page__inner">
+          <section id="subjectOverviewGrid" class="subject-overview-grid" aria-label="学科总览"></section>
+        </div>
+      </section>
+
+      <section id="manualNotesLibraryPage" class="manual-notes-library-page hidden" aria-labelledby="manualNotesLibraryTitle">
+        <div class="manual-notes-library-page__inner">
+          <header class="manual-notes-library-page__header">
+            <div class="manual-notes-library-page__header-main">
+              <span class="material-symbols-outlined manual-notes-library-page__header-icon" aria-hidden="true">event_note</span>
+              <div>
+                <h1 id="manualNotesLibraryTitle">我的笔记</h1>
+                <p id="manualNotesLibrarySubtitle" class="manual-notes-library-page__subtitle">这里会收纳当前学科下的所有手写笔记。</p>
+              </div>
+            </div>
+            <div id="manualNotesLibraryPanelSwitch" class="notes-studio-panel-switch manual-notes-library-page__switch" role="tablist" aria-label="笔记页面面板">
+              <button id="manualNotesLibraryNotesTabBtn" class="notes-studio-panel-switch__btn notes-studio-panel-switch__btn--active" type="button" role="tab" aria-selected="true" aria-controls="manualNotesLibraryNotesPanel">笔记</button>
+              <button id="manualNotesLibraryDiaryTabBtn" class="notes-studio-panel-switch__btn" type="button" role="tab" aria-selected="false" aria-controls="diaryWallModal">日记墙</button>
+            </div>
+            <div id="manualNotesLibrarySubjectTabsWrapper" class="manual-notes-library-page__subject-tabs-wrapper">
+              <button id="manualNotesLibrarySubjectToggle" type="button" class="manual-notes-library-page__subject-toggle" aria-label="展开/收起学科筛选" aria-expanded="true">
+                <span class="material-symbols-outlined" aria-hidden="true">tune</span>
+              </button>
+              <div id="manualNotesLibrarySubjectTabs" class="manual-notes-library-page__subject-tabs" aria-label="按学科筛选收藏笔记" role="tablist">
+                <button type="button" class="manual-notes-library-page__subject-tab manual-notes-library-page__subject-tab--active" data-subject-filter="all">筛选</button>
+              </div>
+            </div>
+            <div id="manualNotesLibraryFilters" class="manual-notes-library-page__filters" aria-label="笔记筛选">
+              <button
+                id="manualNewNoteBtn"
+                class="accent-button manual-notes-library-page__new-note"
+                type="button"
+              >
+                <span class="material-symbols-outlined" aria-hidden="true">analytics</span>
+                <span>深度分析</span>
+              </button>
+            </div>
+          </header>
+          <div class="manual-notes-library-page__body">
+            <section id="manualNotesLibraryNotesPanel" class="manual-notes-library-page__panel manual-notes-library-page__panel--active" role="tabpanel" aria-labelledby="manualNotesLibraryNotesTabBtn">
+              <section id="manualNotesLibraryGrid" class="manual-notes-library-grid" aria-live="polite"></section>
+            </section>
+            <section id="diaryWallModal" class="diary-wall-modal diary-wall-panel manual-notes-library-page__panel hidden" aria-hidden="true" role="tabpanel" aria-labelledby="manualNotesLibraryDiaryTabBtn">
+              <div id="diaryWallModalBackdrop" class="diary-wall-modal__backdrop"></div>
+              <div class="diary-wall-modal__dialog" role="region" aria-label="日记墙">
+                <button id="diaryWallCloseBtn" class="ghost-button icon-btn hidden" type="button" aria-label="关闭日记墙">
+                  <span class="material-symbols-outlined">close</span>
+                </button>
+                <div class="diary-wall-modal__body">
+                  <section class="diary-wall-canvas">
+                    <div class="diary-wall-canvas__toolbar">
+                      <div id="diaryWallAgentNav" class="diary-wall-agent-nav" aria-label="日记墙 Agent 导航">
+                        <button id="diaryWallAgentToggle" type="button" class="diary-wall-agent-toggle" aria-label="展开/收起学科筛选" aria-expanded="true">
+                          <span class="material-symbols-outlined" aria-hidden="true">tune</span>
+                        </button>
+                        <div class="diary-wall-agent-tabs" role="tablist">
+                          <button type="button" class="diary-wall-agent-tab diary-wall-agent-tab--active" data-diary-wall-agent-filter="all">全部</button>
+                        </div>
+                      </div>
+                      <div class="diary-wall-canvas__toolbar-meta">
+                        <div id="diaryWallSummary" class="diary-wall-summary">
+                          <span>等待加载</span>
+                        </div>
+                        <button id="diaryWallEditBtn" class="ghost-button icon-btn" type="button" aria-label="编辑日记墙">
+                          <span class="material-symbols-outlined">edit</span>
+                        </button>
+                        <button id="diaryWallRefreshBtn" class="ghost-button icon-btn" type="button" aria-label="刷新日记墙">
+                          <span class="material-symbols-outlined">refresh</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div id="diaryWallCards" class="diary-wall-grid">
+                      <div class="empty-list-state">
+                        <strong>还没有日记卡</strong>
+                        <span>首次触发 DailyNote.create 后，这里会按 Agent 展示不同日记本的聚合日记。</span>
+                      </div>
+                    </div>
+                  </section>
+                  <aside class="diary-wall-detail">
+                    <div id="diaryWallDetail" class="diary-wall-detail__content">
+                      <div class="empty-list-state">
+                        <strong>选择一张日记卡</strong>
+                        <span>点击卡片后，会展示完整聚合日记、条目列表和来源消息。</span>
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+                <div id="diaryWallNoteModal" class="diary-wall-note-modal hidden" aria-hidden="true">
+                  <div id="diaryWallNoteModalBackdrop" class="diary-wall-note-modal__backdrop"></div>
+                  <section class="diary-wall-note-modal__dialog" role="dialog" aria-modal="true" aria-label="笔记详情">
+                    <header class="diary-wall-note-modal__header">
+                      <strong>笔记详情</strong>
+                      <button id="diaryWallNoteCloseBtn" class="ghost-button icon-btn" type="button" aria-label="关闭笔记详情">
+                        <span class="material-symbols-outlined">close</span>
+                      </button>
+                    </header>
+                    <div id="diaryWallNoteContent" class="diary-wall-note-modal__content"></div>
+                  </section>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <main id="workspaceSubjectPage" class="layout hidden">
+      <nav class="mobile-workspace-tabs" aria-label="窄态工作区导航">
+        <button id="mobileWorkspaceSourceTabBtn" class="mobile-workspace-tab mobile-workspace-tab--active" type="button">来源</button>
+        <button id="mobileWorkspaceChatTabBtn" class="mobile-workspace-tab" type="button">对话</button>
+        <button id="mobileWorkspaceStudioTabBtn" class="mobile-workspace-tab" type="button">Studio</button>
+      </nav>
+      <!-- Workspace Navigation / Files -->
+      <aside class="workspace-sidebar">
+        <section class="panel workspace-nav workspace-topic-card">
+          <div class="workspace-card__header">
+            <div class="workspace-card__titleblock">
+              <p class="workspace-card__title">学习主题</p>
+            </div>
+            <button id="quickNewTopicBtn" class="ghost-button workspace-card__cta workspace-card__cta--topic-create" type="button" aria-label="新建话题">
+              <span class="material-symbols-outlined" aria-hidden="true">post_add</span>
+            </button>
+          </div>
+
+          <div class="hidden">
+            <strong id="workspaceCurrentAgent">未选择学科</strong>
+            <strong id="workspaceCurrentTopic">请选择一个话题</strong>
+            <button id="createNewAgentBtn" class="accent-button icon-text-btn" type="button"><span class="material-symbols-outlined">add</span> 新建学科</button>
+            <input id="agentSearchInput" class="search-input" type="text" placeholder="搜索学科入口" />
+            <ul id="agentList" class="list list--agents"></ul>
+            <button id="exportTopicBtn" class="ghost-button icon-btn" title="导出" type="button"><span class="material-symbols-outlined">download</span></button>
+            <input id="topicSearchInput" class="search-input" type="text" placeholder="筛选学习主题" />
+          </div>
+
+          <ul id="topicList" class="list list--topics workspace-card__list"></ul>
+        </section>
+
+        <div
+          id="workspaceVerticalResizeHandle"
+          class="layout-splitter layout-splitter--vertical"
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整话题和来源高度"
+        ></div>
+
+        <section class="panel source-sidebar-card">
+          <div class="workspace-card__header">
+            <div>
+              <p class="workspace-card__title">学习来源</p>
+            </div>
+          </div>
+
+          <button id="importTopicKnowledgeBaseFilesBtn" class="ghost-button workspace-card__cta" type="button">
+            <span class="material-symbols-outlined">add</span> 添加来源
+          </button>
+
+          <div class="hidden">
+            <p id="sourcePanelBindingStatus" class="settings-caption">每个话题都会自动使用自己的 Source。</p>
+            <button id="openKnowledgeBaseManagerBtn" class="ghost-button icon-text-btn" type="button"><span class="material-symbols-outlined">database</span> 管理来源</button>
+            <div id="topicKnowledgeBaseFilesStatus" class="topic-files__status">选择话题后可查看资料</div>
+            <div id="topicKnowledgeBaseFilesHint" class="topic-files__hint">当前话题会自动拥有独立的 Source，上传的资料会直接进入这一组学习来源。</div>
+          </div>
+
+          <div id="topicKnowledgeBaseFiles" class="knowledge-base-documents topic-knowledge-base-documents workspace-card__list"></div>
+        </section>
+
+        <section id="workspaceReaderPanel" class="panel workspace-reader-panel hidden" aria-live="polite">
+          <div class="workspace-card__header workspace-reader-panel__header">
+            <div class="workspace-card__titleblock">
+              <p class="workspace-card__title">来源</p>
+            </div>
+            <button id="workspaceReaderBackBtn" class="ghost-button icon-btn workspace-reader-panel__close" type="button" aria-label="关闭来源视图">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+
+          <div class="workspace-reader-panel__body">
+            <div class="workspace-reader-panel__title-block">
+              <h2 id="readerDocumentTitle">选择一份资料开始阅读</h2>
+              <p id="readerDocumentMeta" class="settings-caption hidden">打开资料后，系统会异步生成来源指南；你也可以随时切到原文进行阅读和选段注入。</p>
+            </div>
+
+            <div class="workspace-reader-panel__compat hidden" aria-hidden="true">
+              <div class="workspace-reader-panel__header-actions">
+                <button id="refreshReaderGuideBtn" class="ghost-button icon-text-btn" type="button">
+                  <span class="material-symbols-outlined">refresh</span> 刷新指南
+                </button>
+                <button id="readerPrevBtn" class="ghost-button icon-btn" type="button" title="上一页 / 上一段"><span class="material-symbols-outlined">navigate_before</span></button>
+                <button id="readerNextBtn" class="ghost-button icon-btn" type="button" title="下一页 / 下一段"><span class="material-symbols-outlined">navigate_next</span></button>
+              </div>
+              <div class="reader-toolbar workspace-reader-panel__badges">
+                <div id="readerLocationBadge" class="reader-badge">未打开文档</div>
+                <div id="readerIndexStatusBadge" class="reader-badge">尚未入库</div>
+                <div id="readerProcessingStatusBadge" class="reader-badge">等待中</div>
+                <div id="readerGuideStatusBadge" class="reader-badge">指南未生成</div>
+              </div>
+              <div class="workspace-reader-tabs">
+                <button id="leftReaderGuideTabBtn" class="workspace-reader-tab workspace-reader-tab--active" type="button">来源指南</button>
+                <button id="leftReaderContentTabBtn" class="workspace-reader-tab" type="button">原文</button>
+              </div>
+              <div id="readerSelectionBar" class="reader-selection-bar hidden">
+                <div>
+                  <strong>已选中片段</strong>
+                  <p id="readerSelectionSummary" class="settings-caption">当前没有选中内容。</p>
+                </div>
+                <div class="panel__actions">
+                  <button id="clearReaderSelectionBtn" class="ghost-button icon-text-btn" type="button"><span class="material-symbols-outlined">close</span> 清空</button>
+                  <button id="injectReaderSelectionBtn" class="accent-button icon-text-btn" type="button"><span class="material-symbols-outlined">arrow_circle_up</span> 注入当前对话</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="readerGuidePane" class="workspace-reader-pane workspace-reader-pane--stacked">
+              <div class="reader-guide-shell">
+                <div id="readerGuideContent" class="reader-guide-content">
+                  <div class="reader-guide-content__title">来源指南</div>
+                  <div class="empty-list-state">
+                    <strong>来源指南会显示在这里</strong>
+                    <span>从“学习来源”中打开任意 PDF、DOCX 或文本资料后，系统会先生成一份学习导向的阅读指南。</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="readerContentPane" class="workspace-reader-pane workspace-reader-pane--stacked">
+              <div id="readerContent" class="reader-content reader-content--plain">
+                <div class="empty-list-state">
+                  <strong>原文阅读区已就绪</strong>
+                  <span>你可以在这里查看 PDF 页级内容、DOCX 段落结构，并把选中的片段直接注入当前对话。</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+      <div
+        id="leftResizeHandle"
+        class="layout-splitter layout-splitter--left"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整左侧导航宽度"
+      ></div>
+
+      <!-- Chat Stage -->
+      <section class="chat-stage">
+          <header class="chat-stage__header">
+            <div>
+              <h1 class="chat-stage__title">对话</h1>
+              <p class="eyebrow hidden">当前学习主题</p>
+              <h1 id="currentChatTopicName" class="hidden">请选择一个话题</h1>
+              <p id="currentChatAgentName" class="chat-stage__subtitle hidden">当前学科：未选择</p>
+              <p id="currentTopicKnowledgeBaseStatus" class="chat-stage__status hidden">每个话题会自动准备独立 Source</p>
+            </div>
+            <div class="chat-stage__header-actions">
+              <button id="currentAgentSettingsBtn" class="ghost-button icon-text-btn" type="button" title="请选择学科后管理" aria-label="学科管理" disabled>
+                <span class="material-symbols-outlined" aria-hidden="true">tune</span>
+              </button>
+            </div>
+          </header>
+
+          <div class="chat-messages-container">
+            <div id="chatLoadingOverlay" class="chat-loading-overlay hidden" aria-live="polite" aria-hidden="true">
+              <div class="chat-loading-overlay__inner">
+                <div class="chat-loading-overlay__label">正在加载对话</div>
+                <div class="chat-skeleton-list" aria-hidden="true">
+                  <div class="chat-skeleton-message">
+                    <div class="chat-skeleton-message__avatar"></div>
+                    <div class="chat-skeleton-message__body">
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--lg"></span>
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--md"></span>
+                    </div>
+                  </div>
+                  <div class="chat-skeleton-message chat-skeleton-message--user">
+                    <div class="chat-skeleton-message__avatar"></div>
+                    <div class="chat-skeleton-message__body">
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--md"></span>
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--sm"></span>
+                    </div>
+                  </div>
+                  <div class="chat-skeleton-message">
+                    <div class="chat-skeleton-message__avatar"></div>
+                    <div class="chat-skeleton-message__body">
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--lg"></span>
+                      <span class="chat-skeleton-message__line chat-skeleton-message__line--sm"></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="chatMessages" class="chat-messages"></div>
+          </div>
+
+          <footer class="chat-input-area">
+            <div class="chat-input-card">
+              <div id="attachmentPreviewArea" class="attachment-preview-area"></div>
+              <div id="selectionContextPreview" class="selection-context-preview hidden"></div>
+              <textarea id="messageInput" rows="1" placeholder="输入消息... (Shift+Enter 换行)" disabled></textarea>
+              <div class="chat-input-actions">
+                <div class="chat-model-mode" id="chatModelModeRoot">
+                  <button id="chatModelModeBtn" class="chat-model-mode__button" type="button" title="切换聊天模型模式" aria-haspopup="menu" aria-expanded="false" disabled>
+                    <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
+                    <span id="chatModelModeLabel">快速</span>
+                  </button>
+                  <div id="chatModelModeMenu" class="chat-model-mode__menu hidden" role="menu" aria-label="聊天模型模式">
+                    <button class="chat-model-mode__item chat-model-mode__item--active" type="button" role="menuitemradio" aria-checked="true" data-chat-model-mode="fast">
+                      <span class="material-symbols-outlined" aria-hidden="true">bolt</span>
+                      <span><strong>快速</strong><small>适用于大部分情况</small></span>
+                      <span class="material-symbols-outlined chat-model-mode__check" aria-hidden="true">check</span>
+                    </button>
+                    <button class="chat-model-mode__item" type="button" role="menuitemradio" aria-checked="false" data-chat-model-mode="thinking">
+                      <span class="material-symbols-outlined" aria-hidden="true">psychology</span>
+                      <span><strong>思考</strong><small>适合复杂问题</small></span>
+                      <span class="material-symbols-outlined chat-model-mode__check" aria-hidden="true">check</span>
+                    </button>
+                  </div>
+                </div>
+                <button id="composerQuickNewTopicBtn" title="新建聊天话题" disabled>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <path
+                      d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z">
+                    </path>
+                    <path d="M12 8v6"></path>
+                    <path d="M9 11h6"></path>
+                  </svg>
+                </button>
+                <button id="attachFileBtn" title="发送文件" disabled>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <path
+                      d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551" />
+                  </svg>
+                </button>
+                <button id="emoticonTriggerBtn" title="打开表情" disabled>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <path
+                      d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z" />
+                    <path d="M15 3v5a1 1 0 0 0 1 1h5" />
+                    <path d="M8 13h.01" />
+                    <path d="M16 13h.01" />
+                    <path d="M10 16s.8 1 2 1c1.3 0 2-1 2-1" />
+                  </svg>
+                </button>
+                <button id="sendMessageBtn" title="发送消息" disabled>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                    stroke-linejoin="round" aria-hidden="true">
+                    <path d="m5 12 7-7 7 7"></path>
+                    <path d="M12 19V5"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </footer>
+          <input id="hiddenFileInput" type="file" multiple hidden />
+      </section>
+
+      <div
+        id="rightResizeHandle"
+        class="layout-splitter layout-splitter--right"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="调整右侧面板宽度"
+      ></div>
+
+      <aside id="settingsPanel" class="settings-panel settings-panel--notes-only">
+          <div id="notesPanelTab" class="side-panel-pane side-panel-pane--active">
+            <section id="notesWorkspaceCard" class="panel notes-studio notes-studio--panel">
+              <header class="chat-stage__header notes-studio__header">
+                <div class="notes-studio__titleblock">
+                  <h1 class="chat-stage__title">功能区</h1>
+                </div>
+              </header>
+
+              <div id="notesStudioNotesPanel" class="notes-studio__pane notes-studio__pane--active" role="tabpanel" aria-labelledby="notesStudioNotesTabBtn">
+                <div class="notes-studio__section notes-studio__section--tools">
+                  <div class="notes-tool-grid">
+                    <button id="analyzeNotesBtn" class="notes-tool-tile notes-tool-tile--primary" type="button">
+                      <span class="notes-tool-tile__icon material-symbols-outlined">note_add</span>
+                      <span class="notes-tool-tile__body">
+                        <strong>新建笔记</strong>
+                      </span>
+                      <span class="notes-tool-tile__arrow material-symbols-outlined">chevron_right</span>
+                    </button>
+                    <button id="generateQuizBtn" class="notes-tool-tile notes-tool-tile--quiz" type="button">
+                      <span class="notes-tool-tile__icon material-symbols-outlined">quiz</span>
+                      <span class="notes-tool-tile__body">
+                        <strong>生成选择题</strong>
+                      </span>
+                      <span class="notes-tool-tile__arrow material-symbols-outlined">chevron_right</span>
+                    </button>
+                    <button id="generateFlashcardsBtn" class="notes-tool-tile notes-tool-tile--flashcards" type="button">
+                      <span class="notes-tool-tile__icon material-symbols-outlined">style</span>
+                      <span class="notes-tool-tile__body">
+                        <strong>生成闪卡</strong>
+                      </span>
+                      <span class="notes-tool-tile__arrow material-symbols-outlined">chevron_right</span>
+                    </button>
+                    <button id="openPomodoroBtn" class="notes-tool-tile notes-tool-tile--pomodoro" type="button">
+                      <span class="notes-tool-tile__icon material-symbols-outlined">timer</span>
+                      <span class="notes-tool-tile__body">
+                        <strong>番茄钟</strong>
+                      </span>
+                      <span class="notes-tool-tile__arrow material-symbols-outlined">chevron_right</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="notes-stream">
+                  <div class="notes-stream__divider" aria-hidden="true"></div>
+                  <div id="notesList" class="notes-list notes-list--studio"></div>
+                  <section id="studioPomodoroPanel" class="notes-pomodoro-panel hidden" aria-label="番茄钟面板">
+                    <button id="studioPomodoroToggleBtn" class="notes-pomodoro-panel__summary" type="button" aria-expanded="true" aria-controls="studioPomodoroBody">
+                      <span class="notes-pomodoro-panel__summary-main">
+                        <span class="material-symbols-outlined notes-pomodoro-panel__summary-icon" aria-hidden="true">timer</span>
+                        <span class="notes-pomodoro-panel__summary-copy">
+                          <strong>番茄钟</strong>
+                          <span id="studioPomodoroSummaryText">25:00</span>
+                        </span>
+                      </span>
+                      <span class="material-symbols-outlined notes-pomodoro-panel__summary-arrow" aria-hidden="true">expand_more</span>
+                    </button>
+                    <div id="studioPomodoroBody" class="notes-pomodoro-panel__body">
+                      <div class="notes-pomodoro-panel__header">
+                        <div class="notes-pomodoro-panel__copy">
+                          <input
+                            id="studioPomodoroDisplayInput"
+                            class="notes-pomodoro-panel__display-input"
+                            type="text"
+                            value="25:00"
+                            inputmode="numeric"
+                            aria-label="番茄钟时间"
+                          />
+                        </div>
+                      </div>
+                      <div class="dynamic-island__panel-actions notes-pomodoro-panel__actions">
+                        <button id="studioPomodoroStartBtn" class="accent-button dynamic-island__action" type="button">开始</button>
+                        <button id="studioPomodoroPauseBtn" class="ghost-button dynamic-island__action hidden" type="button">暂停</button>
+                        <button id="studioPomodoroResumeBtn" class="accent-button dynamic-island__action hidden" type="button">继续</button>
+                        <button id="studioPomodoroResetBtn" class="ghost-button dynamic-island__action" type="button">重置</button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+            </section>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div id="noteDetailModal" class="note-detail-modal hidden" aria-hidden="true">
+      <div id="noteDetailModalBackdrop" class="note-detail-modal__backdrop"></div>
+      <div class="note-detail-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="noteDetailTitle">
+        <div class="note-detail-modal__header">
+          <div class="note-detail-modal__header-main">
+            <button id="flashcardsBackToNotesBtn" class="ghost-button icon-text-btn note-detail-modal__back" type="button">
+              <span class="material-symbols-outlined">arrow_back</span> 返回 Studio
+            </button>
+            <div>
+              <p id="noteDetailEyebrow" class="eyebrow">笔记详情</p>
+              <h2 id="noteDetailTitle">笔记详情</h2>
+              <p id="noteDetailSubtitle" class="settings-caption">查看、编辑和整理当前笔记内容。</p>
+            </div>
+          </div>
+          <div class="panel__actions note-detail-modal__actions">
+            <button id="analysisViewReportBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">preview</span> 查看报告
+            </button>
+            <button id="analysisEditMarkdownBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">edit_document</span> 编辑 Markdown
+            </button>
+            <button id="noteViewPreviewBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">preview</span> 查看预览
+            </button>
+            <button id="noteEditMarkdownBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">edit_document</span> 编辑文档
+            </button>
+            <button id="quizViewPracticeBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">school</span> 返回练习
+            </button>
+            <button id="quizEditSourceBtn" class="ghost-button icon-text-btn hidden" type="button">
+              <span class="material-symbols-outlined">edit_document</span> 编辑原文
+            </button>
+            <button id="saveNoteBtn" class="accent-button icon-text-btn" type="button">
+              <span class="material-symbols-outlined">save</span> 保存
+            </button>
+            <button id="deleteNoteBtn" class="ghost-button ghost-button--danger icon-text-btn" type="button">
+              <span class="material-symbols-outlined">delete</span> 删除
+            </button>
+            <button id="noteDetailCloseBtn" class="ghost-button icon-btn" type="button" aria-label="关闭笔记详情">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="note-detail-modal__body">
+          <section id="analysisPreviewCard" class="settings-card analysis-preview-card hidden">
+            <div class="analysis-preview__header">
+              <div class="analysis-preview__title-block">
+                <p class="eyebrow">报告预览</p>
+                <h3 id="analysisPreviewTitle">深度分析报告</h3>
+              </div>
+            </div>
+            <article id="analysisPreviewContent" class="analysis-preview__content"></article>
+            <div id="analysisPreviewMeta" class="settings-caption analysis-preview__meta">当前没有可预览的报告。</div>
+          </section>
+
+          <section id="noteMarkdownPreviewCard" class="settings-card analysis-preview-card hidden">
+            <div class="analysis-preview__header">
+              <div class="analysis-preview__title-block">
+                <p class="eyebrow">笔记预览</p>
+                <h3 id="noteMarkdownPreviewTitle">Markdown 渲染预览</h3>
+              </div>
+            </div>
+            <article id="noteMarkdownPreviewContent" class="analysis-preview__content"></article>
+            <div id="noteMarkdownPreviewMeta" class="settings-caption analysis-preview__meta">当前没有可预览的内容。</div>
+          </section>
+
+          <section id="noteEditorCard" class="settings-card note-detail-editor">
+            <h3><span class="material-symbols-outlined bento-icon">edit_note</span> Markdown 编辑器</h3>
+            <div class="field-grid" style="grid-template-columns: 1fr;">
+              <label>
+                <span>标题</span>
+                <input id="noteTitleInput" type="text" placeholder="输入笔记标题" />
+              </label>
+              <label>
+                <span>内容</span>
+                <textarea id="noteContentInput" rows="18" placeholder="在这里记录学习总结、概念分析和最终产出。"></textarea>
+              </label>
+            </div>
+            <div id="noteMetaSummary" class="settings-caption">当前没有打开的笔记。</div>
+          </section>
+
+          <section id="flashcardsPracticeCard" class="settings-card flashcards-practice-card hidden">
+            <div class="flashcards-practice__header">
+              <div class="flashcards-practice__title-block">
+                <p class="eyebrow">交互练习</p>
+                <h2 id="flashcardsDeckTitle">闪卡练习</h2>
+                <p id="flashcardsDeckMeta" class="settings-caption">请选择一组结构化闪卡开始抽认。</p>
+              </div>
+              <div class="flashcards-practice__summary">
+                <span id="flashcardsDeckProgress" class="flashcards-practice__pill">0 / 0</span>
+                <div class="flashcards-practice__stats">
+                  <span id="flashcardsUnknownCount" class="flashcards-practice__stat flashcards-practice__stat--unknown">
+                    <span class="material-symbols-outlined">close</span>
+                    <span>0</span>
+                  </span>
+                  <span id="flashcardsKnownCount" class="flashcards-practice__stat flashcards-practice__stat--known">
+                    <span class="material-symbols-outlined">done</span>
+                    <span>0</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <button id="flashcardCardButton" class="flashcard-card" type="button">
+              <div class="flashcard-card__inner">
+                <div class="flashcard-card__face flashcard-card__face--front">
+                  <span class="flashcard-card__label">问题</span>
+                  <div id="flashcardFrontContent" class="flashcard-card__content"></div>
+                  <span class="flashcard-card__hint">点击查看答案</span>
+                </div>
+                <div class="flashcard-card__face flashcard-card__face--back">
+                  <span class="flashcard-card__label">答案</span>
+                  <div id="flashcardBackContent" class="flashcard-card__content"></div>
+                  <span class="flashcard-card__hint">点击回到问题</span>
+                </div>
+              </div>
+            </button>
+            <div class="flashcards-practice__actions">
+              <button id="flashcardsPrevBtn" class="ghost-button flashcards-practice__action-btn" type="button" aria-label="上一张">
+                <span class="material-symbols-outlined">arrow_back</span>
+              </button>
+              <button id="flashcardsMarkUnknownBtn" class="ghost-button flashcards-practice__result-btn flashcards-practice__result-btn--unknown" type="button">
+                <span class="material-symbols-outlined">close</span> 不知道
+              </button>
+              <button id="flashcardsMarkKnownBtn" class="ghost-button flashcards-practice__result-btn flashcards-practice__result-btn--known" type="button">
+                <span class="material-symbols-outlined">done</span> 知道了
+              </button>
+              <button id="flashcardsNextBtn" class="ghost-button flashcards-practice__action-btn" type="button" aria-label="下一张">
+                <span class="material-symbols-outlined">arrow_forward</span>
+              </button>
+            </div>
+          </section>
+
+          <section id="quizPracticeCard" class="settings-card quiz-practice-card hidden">
+            <div class="quiz-practice__header">
+              <div class="quiz-practice__title-block">
+                <p class="eyebrow">交互练习</p>
+                <h2 id="quizPracticeTitle">选择题练习</h2>
+                <p id="quizPracticeSummary" class="settings-caption">请选择一份测验开始练习。</p>
+              </div>
+              <span id="quizPracticeProgress" class="flashcards-practice__pill">0 / 0</span>
+            </div>
+
+            <div class="quiz-practice__question">
+              <span id="quizPracticeQuestionIndex" class="quiz-practice__question-index">第 1 题</span>
+              <div id="quizPracticeStem" class="quiz-practice__stem"></div>
+            </div>
+
+            <div id="quizPracticeOptions" class="quiz-practice__options" role="list"></div>
+
+            <div id="quizPracticeFeedback" class="quiz-practice__feedback hidden">
+              <div class="quiz-practice__feedback-top">
+                <strong id="quizPracticeResult">请选择答案</strong>
+                <span id="quizPracticeAnswer" class="quiz-practice__answer"></span>
+              </div>
+              <div id="quizPracticeExplanation" class="quiz-practice__explanation"></div>
+            </div>
+
+            <div class="quiz-practice__actions">
+              <button id="quizPracticePrevBtn" class="ghost-button quiz-practice__nav-btn" type="button">
+                <span class="material-symbols-outlined">arrow_back</span> 上一题
+              </button>
+              <button id="quizPracticeNextBtn" class="accent-button quiz-practice__nav-btn" type="button">
+                下一题 <span class="material-symbols-outlined">arrow_forward</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="noteAnalysisModal" class="note-analysis-modal hidden" aria-hidden="true">
+      <div id="noteAnalysisModalBackdrop" class="note-analysis-modal__backdrop"></div>
+      <section class="note-analysis-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="noteAnalysisModalTitle">
+        <header class="note-analysis-modal__header">
+          <div class="note-analysis-modal__title-block">
+            <span class="material-symbols-outlined note-analysis-modal__icon" aria-hidden="true">analytics</span>
+            <div>
+              <p class="eyebrow">跨笔记综合分析</p>
+              <h2 id="noteAnalysisModalTitle">深度分析</h2>
+              <p id="noteAnalysisModalSubtitle" class="settings-caption">选择多条笔记，生成横向迁移和综合诊断报告。</p>
+            </div>
+          </div>
+          <button id="noteAnalysisCloseBtn" class="ghost-button icon-btn" type="button" aria-label="关闭深度分析">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div id="noteAnalysisStepIndicator" class="note-analysis-steps" aria-label="深度分析步骤"></div>
+        <div id="noteAnalysisBody" class="note-analysis-modal__body" aria-live="polite"></div>
+
+        <footer class="note-analysis-modal__actions">
+          <button id="noteAnalysisCancelBtn" class="ghost-button" type="button">取消</button>
+          <button id="noteAnalysisPrevBtn" class="ghost-button hidden" type="button">
+            <span class="material-symbols-outlined">arrow_back</span> 上一步
+          </button>
+          <button id="noteAnalysisNextBtn" class="accent-button icon-text-btn" type="button">
+            下一步 <span class="material-symbols-outlined">arrow_forward</span>
+          </button>
+          <button id="noteAnalysisGenerateBtn" class="accent-button icon-text-btn hidden" type="button">
+            <span class="material-symbols-outlined">auto_awesome</span> 创建分析
+          </button>
+          <button id="noteAnalysisOpenReportBtn" class="accent-button icon-text-btn hidden" type="button">
+            <span class="material-symbols-outlined">preview</span> 打开报告
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="quizConfigModal" class="quiz-config-modal hidden" aria-hidden="true">
+      <div id="quizConfigModalBackdrop" class="quiz-config-modal__backdrop"></div>
+      <section class="quiz-config-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="quizConfigModalTitle">
+        <header class="quiz-config-modal__header">
+          <div class="quiz-config-modal__title-block">
+            <span class="material-symbols-outlined quiz-config-modal__icon" aria-hidden="true">quiz</span>
+            <div>
+              <p class="eyebrow">自定义测验</p>
+              <h2 id="quizConfigModalTitle">生成选择题</h2>
+              <p class="settings-caption">设置本次练习的题量、难度和主题范围。</p>
+            </div>
+          </div>
+          <button id="quizConfigCloseBtn" class="ghost-button icon-btn" type="button" aria-label="关闭自定义测验">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div class="quiz-config-modal__body">
+          <section class="quiz-config-fieldset" aria-labelledby="quizCountLabel">
+            <p id="quizCountLabel" class="quiz-config-label">问题数量</p>
+            <div class="quiz-config-segment" role="group" aria-label="问题数量">
+              <button class="quiz-config-segment__btn" type="button" data-quiz-count-preset="less" data-question-count="5" aria-pressed="false">
+                <span>更少</span>
+                <small>5 题</small>
+              </button>
+              <button class="quiz-config-segment__btn quiz-config-segment__btn--active" type="button" data-quiz-count-preset="standard" data-question-count="8" aria-pressed="true">
+                <span>标准</span>
+                <small>8 题</small>
+              </button>
+              <button class="quiz-config-segment__btn" type="button" data-quiz-count-preset="more" data-question-count="12" aria-pressed="false">
+                <span>更多</span>
+                <small>12 题</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="quiz-config-fieldset" aria-labelledby="quizDifficultyLabel">
+            <p id="quizDifficultyLabel" class="quiz-config-label">难度等级</p>
+            <div class="quiz-config-segment" role="group" aria-label="难度等级">
+              <button class="quiz-config-segment__btn" type="button" data-quiz-difficulty="easy" aria-pressed="false">
+                <span>简单</span>
+              </button>
+              <button class="quiz-config-segment__btn quiz-config-segment__btn--active" type="button" data-quiz-difficulty="medium" aria-pressed="true">
+                <span>中等</span>
+              </button>
+              <button class="quiz-config-segment__btn" type="button" data-quiz-difficulty="hard" aria-pressed="false">
+                <span>困难</span>
+              </button>
+            </div>
+          </section>
+
+          <label class="quiz-config-field" for="quizFocusInput">
+            <span>主题应该是什么？</span>
+            <textarea id="quizFocusInput" rows="5" placeholder="例如：只考察第三章的关键概念、围绕这次聊天中的易错点、专注某一篇 Source 的内容。"></textarea>
+          </label>
+
+          <label class="quiz-config-check">
+            <input id="quizIncludeChatContextInput" type="checkbox" />
+            <span>
+              <strong>包含当前对话</strong>
+              <small>追加最近 12 条有效提问和回答，适合把刚讨论过的重点纳入练习。</small>
+            </span>
+          </label>
+        </div>
+
+        <footer class="quiz-config-modal__actions">
+          <button id="quizConfigCancelBtn" class="ghost-button" type="button">取消</button>
+          <button id="quizConfigGenerateBtn" class="accent-button icon-text-btn" type="button">
+            <span class="material-symbols-outlined">auto_awesome</span> 生成
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="flashcardConfigModal" class="quiz-config-modal hidden" aria-hidden="true">
+      <div id="flashcardConfigModalBackdrop" class="quiz-config-modal__backdrop"></div>
+      <section class="quiz-config-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="flashcardConfigModalTitle">
+        <header class="quiz-config-modal__header">
+          <div class="quiz-config-modal__title-block">
+            <span class="material-symbols-outlined quiz-config-modal__icon" aria-hidden="true">style</span>
+            <div>
+              <p class="eyebrow">自定义抽认卡</p>
+              <h2 id="flashcardConfigModalTitle">生成闪卡</h2>
+              <p class="settings-caption">设置本次卡组的数量、难度和主题范围。</p>
+            </div>
+          </div>
+          <button id="flashcardConfigCloseBtn" class="ghost-button icon-btn" type="button" aria-label="关闭自定义闪卡">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </header>
+
+        <div class="quiz-config-modal__body">
+          <section class="quiz-config-fieldset" aria-labelledby="flashcardCountLabel">
+            <p id="flashcardCountLabel" class="quiz-config-label">卡片数量</p>
+            <div class="quiz-config-segment" role="group" aria-label="卡片数量">
+              <button class="quiz-config-segment__btn" type="button" data-flashcard-count-preset="less" data-card-count="8" aria-pressed="false">
+                <span>更少</span>
+                <small>8 张</small>
+              </button>
+              <button class="quiz-config-segment__btn quiz-config-segment__btn--active" type="button" data-flashcard-count-preset="standard" data-card-count="12" aria-pressed="true">
+                <span>标准</span>
+                <small>12 张</small>
+              </button>
+              <button class="quiz-config-segment__btn" type="button" data-flashcard-count-preset="more" data-card-count="18" aria-pressed="false">
+                <span>更多</span>
+                <small>18 张</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="quiz-config-fieldset" aria-labelledby="flashcardDifficultyLabel">
+            <p id="flashcardDifficultyLabel" class="quiz-config-label">难度等级</p>
+            <div class="quiz-config-segment" role="group" aria-label="难度等级">
+              <button class="quiz-config-segment__btn" type="button" data-flashcard-difficulty="easy" aria-pressed="false">
+                <span>简单</span>
+              </button>
+              <button class="quiz-config-segment__btn quiz-config-segment__btn--active" type="button" data-flashcard-difficulty="medium" aria-pressed="true">
+                <span>中等</span>
+              </button>
+              <button class="quiz-config-segment__btn" type="button" data-flashcard-difficulty="hard" aria-pressed="false">
+                <span>困难</span>
+              </button>
+            </div>
+          </section>
+
+          <label class="quiz-config-field" for="flashcardFocusInput">
+            <span>主题应该是什么？</span>
+            <textarea id="flashcardFocusInput" rows="5" placeholder="例如：只围绕某一篇 Source、专注核心术语、整理这次聊天里的易混概念。"></textarea>
+          </label>
+
+          <label class="quiz-config-check">
+            <input id="flashcardIncludeChatContextInput" type="checkbox" />
+            <span>
+              <strong>包含当前对话</strong>
+              <small>追加最近 12 条有效提问和回答，适合把刚讨论过的重点整理成抽认卡。</small>
+            </span>
+          </label>
+        </div>
+
+        <footer class="quiz-config-modal__actions">
+          <button id="flashcardConfigCancelBtn" class="ghost-button" type="button">取消</button>
+          <button id="flashcardConfigGenerateBtn" class="accent-button icon-text-btn" type="button">
+            <span class="material-symbols-outlined">auto_awesome</span> 生成
+          </button>
+        </footer>
+      </section>
+    </div>
+
+    <div id="settingsModal" class="settings-modal hidden" aria-hidden="true">
+      <div id="settingsModalBackdrop" class="settings-modal__backdrop"></div>
+      <div class="settings-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+        <h2 id="settingsModalTitle" class="hidden">设置</h2>
+        <p id="settingsModalSubtitle" class="settings-caption hidden">统一管理全局连接、智能体参数与 Source 配置。</p>
+        <button id="settingsModalCloseBtn" class="ghost-button icon-btn settings-modal__close hidden" type="button" aria-label="关闭设置" tabindex="-1" aria-hidden="true">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+        <div class="settings-modal__body">
+          <nav class="settings-modal__nav" aria-label="设置分类">
+            <div class="settings-modal__panel-header settings-modal__panel-header--nav">
+              <p class="settings-modal__panel-title">设置导航</p>
+            </div>
+            <div class="settings-modal__nav-list">
+              <div class="settings-modal__nav-group">
+                <button id="settingsNavServicesBtn" class="settings-modal__nav-button settings-modal__nav-button--active" type="button" data-settings-section-button="services">
+                  <span class="material-symbols-outlined">hub</span>
+                  <span>模型服务</span>
+                </button>
+                <button id="settingsNavDefaultModelBtn" class="settings-modal__nav-button" type="button" data-settings-section-button="default-model">
+                  <span class="material-symbols-outlined">smart_toy</span>
+                  <span>默认模型</span>
+                </button>
+              </div>
+              <div class="settings-modal__nav-divider" aria-hidden="true"></div>
+              <div class="settings-modal__nav-group">
+                <button id="settingsNavRetrievalBtn" class="settings-modal__nav-button" type="button" data-settings-section-button="retrieval">
+                  <span class="material-symbols-outlined">tune</span>
+                  <span>检索调优</span>
+                </button>
+                <button id="settingsNavPromptsBtn" class="settings-modal__nav-button" type="button" data-settings-section-button="prompts">
+                  <span class="material-symbols-outlined">text_snippet</span>
+                  <span>提示词设置</span>
+                </button>
+                <button id="settingsNavDisplayBtn" class="settings-modal__nav-button" type="button" data-settings-section-button="display">
+                  <span class="material-symbols-outlined">brush</span>
+                  <span>显示设置</span>
+                </button>
+              </div>
+            </div>
+          </nav>
+
+          <div class="settings-modal__content">
+            <div class="settings-modal__content-scroll">
+            <section id="settingsModalSectionServices" class="settings-modal__section" data-settings-section="services">
+              <section class="settings-card settings-card--modal model-service-card">
+                <div id="modelServiceWorkbench" class="model-service-workbench">
+                  <aside class="model-service-provider-pane">
+                    <div class="model-service-provider-pane__search">
+                      <label class="model-service-searchbar">
+                        <span class="material-symbols-outlined">search</span>
+                        <input id="modelServiceProviderSearchInput" type="search" placeholder="搜索 Provider" />
+                      </label>
+                    </div>
+                    <div id="modelServiceProviderList" class="model-service-provider-list" aria-live="polite"></div>
+                    <div id="modelServicePresetActions" class="model-service-preset-host"></div>
+                    <div class="model-service-provider-pane__footer">
+                      <button id="modelServiceAddProviderBtn" class="model-service-add-button" type="button">
+                        <span class="material-symbols-outlined">add</span>
+                        <span>添加</span>
+                      </button>
+                    </div>
+                  </aside>
+                  <section class="model-service-setting-pane">
+                    <div id="modelServiceProviderDetail" class="model-service-setting-pane__section" aria-live="polite"></div>
+                    <div id="modelServiceModelsPanel" class="model-service-setting-pane__section" aria-live="polite"></div>
+                  </section>
+                </div>
+                <div class="hidden" aria-hidden="true">
+                  <input id="userNameInput" type="text" placeholder="User" />
+                  <input id="chatEndpoint" type="text" placeholder="http://host:port/v1/chat/completions" />
+                  <input id="chatApiKey" type="password" />
+                  <input id="kbBaseUrl" type="text" />
+                  <input id="kbApiKey" type="password" />
+                  <input id="kbEmbeddingModel" type="text" placeholder="BAAI/bge-m3" />
+                  <input id="kbRerankModel" type="text" placeholder="BAAI/bge-reranker-v2-m3" />
+                </div>
+              </section>
+            </section>
+
+            <section id="settingsModalSectionDefaultModel" class="settings-modal__section hidden" data-settings-section="default-model">
+              <section class="settings-list-card model-service-default-shell">
+                <h3>模型用途</h3>
+                <div class="settings-list-card__body">
+                  <div id="modelServiceDefaultSelectors" class="model-service-default-grid" aria-live="polite"></div>
+                  <div class="settings-list">
+                    <div class="settings-row">
+                      <div class="settings-row__main"><strong>思考模式强度</strong><span>控制“思考”聊天的推理预算。低强度会更快开始输出，默认则交给模型服务。</span></div>
+                      <select id="thinkingChatReasoningEffortInput" class="settings-row__control" aria-label="思考模式强度">
+                        <option value="default">默认</option>
+                        <option value="none">关闭</option>
+                        <option value="low">低强度（更快）</option>
+                        <option value="medium">中强度</option>
+                        <option value="high">高强度</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="hidden" aria-hidden="true">
+                  <input id="defaultModelInput" type="text" placeholder="gemini-3.1-flash-lite-preview" />
+                  <input id="thinkingChatDefaultModelInput" type="text" placeholder="留空则跟随默认快速聊天模型" />
+                  <input id="followUpDefaultModelInput" type="text" placeholder="留空则跟随当前学科模型" />
+                  <input id="studyToolDefaultModelInput" type="text" placeholder="留空则跟随默认聊天模型" />
+                  <input id="topicTitleDefaultModelInput" type="text" placeholder="留空则跟随当前学科模型" />
+                </div>
+              </section>
+            </section>
+
+            <section id="settingsModalSectionRetrieval" class="settings-modal__section hidden" data-settings-section="retrieval">
+              <section class="settings-list-card">
+                <h3>来源检索</h3>
+                <div class="settings-list">
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>Rerank 重排</strong><span>用重排模型重新排序候选片段，提高命中质量。</span></div>
+                    <label class="toggle-switch settings-row__control" aria-label="启用 Rerank 重排"><input id="kbUseRerank" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>返回片段数</strong><span>最终注入对话的来源片段数量。</span></div>
+                    <input id="kbTopK" class="settings-row__number" type="number" min="1" step="1" />
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>候选片段数</strong><span>重排前先取多少条候选，数字越大越慢。</span></div>
+                    <input id="kbCandidateTopK" class="settings-row__number" type="number" min="1" step="1" />
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>最低相关度</strong><span>低于这个分数的来源片段会被过滤。</span></div>
+                    <input id="kbScoreThreshold" class="settings-row__number" type="number" min="0" max="1" step="0.01" />
+                  </div>
+                </div>
+              </section>
+            </section>
+
+            <section id="settingsModalSectionPrompts" class="settings-modal__section hidden" data-settings-section="prompts">
+              <section class="settings-list-card">
+                <h3>学习档案</h3>
+                <div class="settings-list">
+                  <div class="settings-row"><div class="settings-row__main"><strong>学生姓名</strong><span>用于 {{StudentName}}。</span></div><input id="studentNameInput" type="text" placeholder="未设置" /></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>所在城市</strong><span>用于 {{City}}。</span></div><input id="studyCityInput" type="text" placeholder="未设置" /></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>学习工作区</strong><span>用于 {{StudyWorkspace}}。</span></div><input id="studyWorkspaceInput" type="text" placeholder="例如 A-301" /></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>工作环境</strong><span>用于 {{WorkEnvironment}}。</span></div><input id="workEnvironmentInput" type="text" placeholder="例如 Laptop + Pen Tablet" /></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>默认时区</strong><span>用于日期和日记时间。</span></div><input id="studyTimezoneInput" type="text" placeholder="Asia/Hong_Kong" /></div>
+                </div>
+                <div class="field-grid hidden">
+                  <label><span>日志工具回合上限</span><input id="studyLogMaxRoundsInput" type="number" min="1" step="1" /></label>
+                  <label><span>长期记忆 Top K</span><input id="studyMemoryTopKInput" type="number" min="1" step="1" /></label>
+                  <label><span>Fallback Top K</span><input id="studyMemoryFallbackTopKInput" type="number" min="1" step="1" /></label>
+                </div>
+                <div class="field-grid hidden" style="grid-template-columns: 1fr;">
+                  <label><span>自定义提示词变量(JSON)</span><textarea id="promptVariablesInput" rows="5" placeholder='{"CourseName":"高数","Classroom":"A-301"}'></textarea></label>
+                </div>
+              </section>
+
+              <section class="settings-list-card">
+                <h3>学习日志</h3>
+                <div class="settings-list">
+                  <div class="settings-row"><div class="settings-row__main"><strong>本地学习日志</strong><span>关闭后 DailyNote 工具、自动协议注入和日志写入都会停用。</span></div><label class="toggle-switch settings-row__control"><input id="studyLogEnabledInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>作为提示变量</strong><span>允许 {{DailyNoteGuide}} 展开为 DailyNote 协议。</span></div><label class="toggle-switch settings-row__control"><input id="studyLogEnablePromptVariablesInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label></div>
+                  <div class="settings-row"><div class="settings-row__main"><strong>发送前自动补上协议</strong><span>工具对话时自动把 DailyNote 协议追加到 system prompt。</span></div><label class="toggle-switch settings-row__control"><input id="studyLogAutoInjectProtocolInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>DailyNote 协议文本</strong><span>留空时使用内置默认协议。</span></div><textarea id="dailyNoteGuideInput" rows="6" placeholder="这里定义全局 DailyNote 协议文本。"></textarea></div>
+                </div>
+              </section>
+
+              <section class="settings-list-card">
+                <h3>回答表现</h3>
+                <div class="settings-list">
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>结构化渲染提示</strong><span>控制回答是否携带结构化渲染指导。</span></div><label class="toggle-switch settings-row__control"><input id="enableRenderingPromptInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label><textarea id="renderingPromptInput" rows="4" placeholder="用于控制结构化 div 渲染风格。"></textarea></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>表情包提示</strong><span>让模型知道可用表情包和图片伪路径。</span></div><label class="toggle-switch settings-row__control"><input id="enableEmoticonPromptInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label><textarea id="emoticonPromptInput" rows="5" placeholder="用于控制内置表情包的文件列表和伪路径提示。"></textarea></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>简洁气泡补充</strong><span>控制回答偏紧凑还是偏展开。</span></div><label class="toggle-switch settings-row__control"><input id="enableAdaptiveBubbleTipInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label><textarea id="adaptiveBubbleTipInput" rows="3" placeholder="用于补充气泡风格自适应提示。"></textarea></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>视觉气泡主题注入</strong><span>额外追加到 system prompt 末尾的视觉风格提示。</span></div><label class="toggle-switch settings-row__control"><input id="enableAgentBubbleTheme" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label><textarea id="agentBubbleThemePrompt" rows="4" placeholder="启用后，这段提示词会额外追加到发送给上游的 system 消息中。"></textarea><span id="agentBubbleThemePersistStatus" class="settings-caption"></span></div>
+                </div>
+              </section>
+
+              <section class="settings-list-card">
+                <h3>自动辅助</h3>
+                <div class="settings-list">
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>追问提示词模板</strong><span>用于回复完成后生成后续追问。</span></div><textarea id="followUpPromptTemplateInput" rows="5" placeholder="这里定义回复完成后自动生成追问时使用的全局模板。"></textarea></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>自动命名话题</strong><span>首轮助手回复成功后尝试自动生成话题标题。</span></div><label class="toggle-switch settings-row__control"><input id="enableTopicTitleGenerationInput" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label><textarea id="topicTitlePromptTemplateInput" rows="5" placeholder="这里定义首轮回复完成后自动命名话题时使用的全局模板。"></textarea></div>
+                </div>
+              </section>
+
+              <section class="settings-list-card">
+                <h3>协议预览</h3>
+                <div class="settings-list">
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>当前提示词片段</strong><span>查看哪些片段会被加入最终 system prompt。</span></div><button id="refreshFinalSystemPromptPreviewBtn" class="ghost-button icon-text-btn settings-row__button" type="button"><span class="material-symbols-outlined">preview</span> 刷新</button><div id="promptSegmentPreview" class="settings-token-grid" aria-label="当前提示词片段总览"></div></div>
+                  <div class="settings-row settings-row--editor"><div class="settings-row__main"><strong>最终完整 system prompt</strong><span>当前选中学科实际发送给上游的完整 system prompt。</span></div><textarea id="finalSystemPromptPreview" class="settings-textarea--preview" rows="10" readonly aria-readonly="true" placeholder="这里会显示完整 system prompt。"></textarea><div id="finalSystemPromptPreviewMeta" class="settings-preview-meta"></div></div>
+                </div>
+              </section>
+            </section>
+
+            <section id="settingsModalSectionDisplay" class="settings-modal__section hidden" data-settings-section="display">
+              <section class="settings-list-card">
+                <h3>聊天显示</h3>
+                <div class="settings-list">
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>聊天字体</strong><span>控制普通对话内容的字体风格。</span></div>
+                    <select id="chatFontPreset" class="settings-row__control">
+                      <option value="system">系统</option>
+                      <option value="serif">衬线</option>
+                      <option value="monospace">等宽</option>
+                    </select>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>代码字体</strong><span>控制代码块和等宽内容的字体。</span></div>
+                    <select id="chatCodeFontPreset" class="settings-row__control">
+                      <option value="cascadia">Cascadia Code</option>
+                      <option value="monospace">等宽</option>
+                      <option value="system">系统</option>
+                    </select>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>气泡宽度</strong><span>控制宽屏聊天气泡最大宽度百分比。</span></div>
+                    <input id="chatBubbleMaxWidthWideDefault" class="settings-row__number" type="number" min="50" max="96" />
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row__main"><strong>平滑流式输出</strong><span>让模型回复逐步展开，视觉上更顺滑。</span></div>
+                    <label class="toggle-switch settings-row__control" aria-label="启用平滑流式输出"><input id="enableSmoothStreaming" type="checkbox" /><span class="toggle-switch__track"><span class="toggle-switch__thumb"></span></span></label>
+                  </div>
+                </div>
+              </section>
+            </section>
+
+            <section id="settingsModalSectionKnowledgeBase" class="settings-modal__section hidden" data-settings-section="knowledge-base">
+              <section class="settings-card settings-card--modal">
+                <h3><span class="material-symbols-outlined bento-icon">database</span> 来源管理</h3>
+                <p class="settings-caption">这里专注管理来源库本身。连接与检索模型已经复用全局连接中的配置。</p>
+                <div class="field-grid">
+                  <label style="grid-column: span 2;">
+                    <span>Source 名称</span>
+                    <input id="knowledgeBaseNameInput" type="text" placeholder="输入来源名称" />
+                  </label>
+                </div>
+                <div class="checkbox-row">
+                  <button id="createKnowledgeBaseBtn" class="ghost-button" type="button">创建</button>
+                  <button id="renameKnowledgeBaseBtn" class="ghost-button" type="button">重命名</button>
+                  <button id="deleteKnowledgeBaseBtn" class="ghost-button ghost-button--danger" type="button">删除</button>
+                  <button id="importKnowledgeBaseFilesBtn" class="ghost-button" type="button">导入文件</button>
+                </div>
+                <p id="knowledgeBaseSelectionSummary" class="settings-caption">每个话题会自动拥有自己的 Source；这里可统一查看和维护来源库。</p>
+                <div id="knowledgeBaseList" class="knowledge-base-list"></div>
+                <div id="knowledgeBaseDocuments" class="knowledge-base-documents"></div>
+                <div class="kb-debug-panel">
+                  <div class="kb-debug-panel__header">
+                    <div>
+                      <h4>Source 检索调试</h4>
+                      <p class="settings-caption">对当前选中的来源运行搜索或完整调试，查看命中和最终注入上下文。</p>
+                    </div>
+                  </div>
+                  <div class="field-grid">
+                    <label style="grid-column: span 2;">
+                      <span>Debug Query</span>
+                      <input id="knowledgeBaseDebugQueryInput" type="text" placeholder="输入一个问题，查看来源命中与最终注入内容" />
+                    </label>
+                  </div>
+                  <div class="checkbox-row">
+                    <button id="runKnowledgeBaseSearchBtn" class="ghost-button" type="button">搜索</button>
+                    <button id="runKnowledgeBaseDebugBtn" class="ghost-button" type="button">调试</button>
+                  </div>
+                  <div id="knowledgeBaseDebugResults" class="kb-debug-results">
+                    <div class="empty-list-state"><strong>还没有调试结果</strong><span>选择一个 Source 并输入 query 后，这里会显示搜索或调试信息。</span></div>
+                  </div>
+                </div>
+              </section>
+            </section>
+            </div>
+          </div>
+        </div>
+
+        <div id="settingsModalFooter" class="settings-modal__footer hidden">
+          <p id="settingsAutoSaveStatus" class="settings-caption hidden">修改后会自动保存。</p>
+          <button id="saveGlobalSettingsBtn" class="accent-button hidden" type="button" aria-hidden="true" tabindex="-1">保存全局与来源设置</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="subjectSettingsPanel" class="subject-settings-panel hidden" aria-hidden="true">
+    <div id="subjectSettingsPanelBackdrop" class="subject-settings-panel__backdrop"></div>
+    <section id="subjectSettingsPanelDialog" class="subject-settings-panel__dialog" role="dialog" aria-modal="true" aria-labelledby="agentSettingsContainerTitle">
+      <header class="subject-settings-panel__header">
+        <div class="subject-settings-panel__title-block">
+          <span class="material-symbols-outlined subject-settings-panel__icon" aria-hidden="true">school</span>
+          <div>
+            <p class="eyebrow">学科管理</p>
+            <h2 id="agentSettingsContainerTitle">学科设置</h2>
+            <p id="selectedAgentNameForSettings" class="settings-caption hidden"></p>
+          </div>
+        </div>
+        <button
+          id="subjectSettingsPanelCloseBtn"
+          class="ghost-button icon-btn subject-settings-panel__close"
+          type="button"
+          aria-label="关闭学科管理"
+          data-subject-settings-close
+          onpointerdown="window.__unistudyCloseSubjectSettingsPanel?.(event)"
+          onclick="window.__unistudyCloseSubjectSettingsPanel?.(event)"
+        >
+          <span class="material-symbols-outlined" aria-hidden="true">close</span>
+        </button>
+      </header>
+
+      <div class="subject-settings-panel__body">
+        <div id="selectAgentPromptForSettings" class="empty-state">
+          <span class="material-symbols-outlined empty-icon">smart_toy</span>
+          <p>请选择一个学科以进行配置</p>
+        </div>
+
+        <div id="agentSettingsContainer" class="settings-stack settings-stack--agent hidden">
+          <section class="settings-list-card">
+            <h3>学科信息</h3>
+            <div class="settings-list">
+              <div class="settings-row settings-row--avatar">
+                <div class="settings-row__main"><strong>头像</strong><span>点击图片更换当前学科头像。</span></div>
+                <div class="avatar-editor settings-row__avatar" title="点击上传头像">
+                  <img id="agentAvatarPreview" src="../assets/brand-logo.png" alt="avatar" />
+                  <input id="agentAvatarInput" type="file" accept="image/*" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row__main"><strong>名称</strong><span>显示在学科列表和聊天顶部。</span></div>
+                <input id="agentNameInput" class="settings-row__control" type="text" />
+              </div>
+              <div class="settings-row">
+                <div class="settings-row__main"><strong>卡片 Emoji</strong><span>显示在首页学科卡片上，留空使用默认图标。</span></div>
+                <div id="agentCardEmojiPickerRoot" class="settings-row__control subject-emoji-picker">
+                  <button id="agentCardEmojiPickerBtn" class="subject-emoji-picker__trigger" type="button" aria-haspopup="dialog" aria-expanded="false" title="选择卡片 Emoji">
+                    <span id="agentCardEmojiPreview" class="subject-emoji-picker__preview" aria-hidden="true">🎓</span>
+                    <span class="subject-emoji-picker__label">选择</span>
+                  </button>
+                  <button id="agentCardEmojiClearBtn" class="subject-emoji-picker__clear hidden" type="button" aria-label="清除卡片 Emoji">
+                    <span class="material-symbols-outlined" aria-hidden="true">close</span>
+                  </button>
+                  <div id="agentCardEmojiPickerPopover" class="subject-emoji-picker__popover hidden" role="dialog" aria-label="选择卡片 Emoji" aria-hidden="true">
+                    <span class="subject-emoji-picker__arrow" aria-hidden="true"></span>
+                    <emoji-picker id="agentCardEmojiPicker" class="light"></emoji-picker>
+                  </div>
+                  <input id="agentCardEmojiInput" type="hidden" />
+                </div>
+              </div>
+              <div class="settings-row">
+                <div class="settings-row__main"><strong>模型</strong><span>当前学科优先使用的聊天模型。</span></div>
+                <input id="agentModel" class="settings-row__control" type="text" />
+              </div>
+              <div class="settings-row settings-row--editor settings-row--agent-prompt">
+                <div class="settings-row__main"><strong>系统提示词</strong><span>定义这个学科的回答方式和教学风格。</span></div>
+                <div id="systemPromptContainer"></div>
+              </div>
+            </div>
+            <input id="editingAgentId" type="hidden" />
+          </section>
+
+          <div class="settings-agent-actions">
+            <button id="saveAgentSettingsBtn" class="accent-button settings-agent-actions__save" type="button">保存学科设置</button>
+            <button id="deleteAgentBtn" class="ghost-button ghost-button--danger settings-agent-actions__delete" type="button">删除学科</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="floating-toast-notifications-container"></div>
+  <div id="modal-container"></div>
+  <div id="topicActionMenu" class="topic-action-menu hidden"></div>
+  <div id="noteActionMenu" class="topic-action-menu hidden"></div>
+  <div id="sourceFileTooltip" class="source-file-tooltip hidden" role="tooltip"></div>
+  <div id="messageCitationPopover" class="message-citation-popover hidden" role="dialog" aria-hidden="true"></div>
+  <div id="sourceFileActionMenu" class="source-file-action-menu hidden"></div>
+  <div id="emoticonPanel" class="emoticon-panel"></div>
+  <input id="hiddenKnowledgeBaseFileInput" type="file" multiple hidden />
+  <input id="hiddenTopicKnowledgeBaseFileInput" type="file" multiple hidden />
+
+  <script>
+    (() => {
+      function closeSubjectSettingsPanelFallback(event) {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
+        const panel = document.getElementById('subjectSettingsPanel');
+        const emojiPopover = document.getElementById('agentCardEmojiPickerPopover');
+        const emojiButton = document.getElementById('agentCardEmojiPickerBtn');
+        panel?.classList.add('hidden');
+        panel?.setAttribute('aria-hidden', 'true');
+        document.body?.classList.remove('subject-settings-panel-open');
+        emojiPopover?.classList.add('hidden');
+        emojiPopover?.setAttribute('aria-hidden', 'true');
+        emojiButton?.setAttribute('aria-expanded', 'false');
+      }
+
+      window.__unistudyCloseSubjectSettingsPanel = (event) => {
+        if (typeof window.__unistudySubjectSettingsCloseHandler === 'function') {
+          window.__unistudySubjectSettingsCloseHandler(event);
+          return;
+        }
+        closeSubjectSettingsPanelFallback(event);
+      };
+
+      document.addEventListener('click', (event) => {
+        if (event.target instanceof Element && event.target.closest('[data-subject-settings-close]')) {
+          window.__unistudyCloseSubjectSettingsPanel(event);
+        }
+      }, true);
+    })();
+  </script>
+  <script src="../../vendor/purify.min.js"></script>
+  <script src="../../vendor/marked.min.js"></script>
+  <script src="../../vendor/highlight.min.js"></script>
+  <script src="../../vendor/katex.min.js"></script>
+  <script src="../../vendor/auto-render.min.js"></script>
+  <script src="../../vendor/anime.min.js"></script>
+  <script src="../../vendor/three.min.js"></script>
+  <script src="../../vendor/morphdom.min.js"></script>
+  <script type="module" src="../../vendor/emoji-picker-element.bundle.js"></script>
+  <script src="../modules/renderer/ui-helpers.js"></script>
+  <script src="../Promptmodules/original-prompt-module.js"></script>
+  <script type="module" src="../modules/renderer/pretext.bundle.js"></script>
+  <script type="module" src="../modules/renderer/pretext-bridge.js"></script>
+  <script src="../modules/renderer/emoticonManager.js"></script>
+  <script type="module" src="renderer.js"></script>
+</body>
+</html>

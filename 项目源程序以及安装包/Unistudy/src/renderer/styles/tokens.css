@@ -1,0 +1,113 @@
+/* Renderer shell tokens and global primitives. */
+
+@font-face {
+  font-family: 'MavenProExtraBold';
+  src: url('../../assets/font/MavenPro-ExtraBold.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../../assets/font/MaterialSymbolsOutlined-latin-wght-normal.woff2') format('woff2');
+}
+
+:root {
+  --color-text-primary: #202124;
+  --color-text-secondary: #3c4043;
+  --color-text-tertiary: #5f6368;
+  --color-text-muted: #80868b;
+
+  --md-sys-color-primary: #1a73e8;
+  --md-sys-color-primary-container: #d3e3fd;
+  --md-sys-color-on-primary-container: #041e49;
+  --md-sys-color-secondary-container: #e8f0fe;
+  --md-sys-color-tertiary-container: #e6f4ea;
+  --md-sys-color-error: #ea4335;
+  --md-sys-color-warning: #fbbc04;
+  --md-sys-color-success: #34a853;
+  --md-sys-color-surface-variant: #e8f0fe;
+  --md-sys-color-error-container: #fce8e6;
+  --md-sys-color-success-container: #e6f4ea;
+  --md-sys-state-hover: rgba(26, 115, 232, 0.08);
+  --md-sys-state-focus: rgba(26, 115, 232, 0.16);
+
+  --color-surface: #ffffff;
+  --color-surface-bright: #f8f9fa;
+  --color-surface-container: #edeff9;
+  --color-surface-container-high: #edeff9;
+  --color-outline: #dadce0;
+  --color-outline-variant: #c4c7c5;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
+
+  --shadow-level-1:
+    0 1px 2px 0 rgba(60, 64, 67, 0.3),
+    0 1px 3px 1px rgba(60, 64, 67, 0.15);
+  --shadow-level-2:
+    0 1px 2px 0 rgba(60, 64, 67, 0.3),
+    0 2px 6px 2px rgba(60, 64, 67, 0.15);
+  --shadow-level-3:
+    0 1px 3px 0 rgba(60, 64, 67, 0.3),
+    0 4px 8px 3px rgba(60, 64, 67, 0.15);
+  --motion-standard: 240ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  --paper: #f0f4f9;
+  --ink: var(--color-text-primary);
+  --muted: var(--color-text-tertiary);
+  --panel: var(--color-surface);
+  --panel-strong: var(--color-surface-bright);
+  --panel-soft: var(--color-surface-container);
+  --line: var(--color-outline);
+  --accent: var(--md-sys-color-primary);
+  --accent-strong: var(--md-sys-color-on-primary-container);
+  --accent-soft: var(--md-sys-color-primary-container);
+  --shadow-elevation-1: var(--shadow-level-1);
+  --shadow-elevation-2: var(--shadow-level-2);
+  --shadow-elevation-3: var(--shadow-level-3);
+
+  --macaron-blue: #e8f0fe;
+  --macaron-green: #e6f4ea;
+  --macaron-purple: #f3e8fd;
+  --macaron-yellow: #fef7e0;
+
+  --unistudy-chat-max-width: 92%;
+  --unistudy-chat-font: 'Segoe UI', 'PingFang SC', sans-serif;
+  --unistudy-code-font: 'Cascadia Code', 'Consolas', monospace;
+  --unistudy-left-width: 410px;
+  --unistudy-right-width: 400px;
+  --unistudy-effective-right-width: 400px;
+  --unistudy-center-min: 560px;
+  --unistudy-divider-width: 12px;
+  --unistudy-effective-right-divider-width: 12px;
+  --unistudy-left-top-height: 360px;
+  --unistudy-left-vertical-divider-height: 12px;
+}
+
+body.dark-theme {
+  --paper: #131314;
+  --ink: #e3e3e3;
+  --muted: #c4c7c5;
+  --panel: #1e1e20;
+  --panel-strong: #282a2c;
+  --panel-soft: #232528;
+  --line: rgba(255, 255, 255, 0.08);
+  --accent: #a8c7fa;
+  --accent-strong: #d3e3fd;
+  --accent-soft: rgba(168, 199, 250, 0.16);
+  --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --shadow-elevation-3: 0 10px 24px rgba(0, 0, 0, 0.44);
+
+  --macaron-blue: rgba(138, 180, 248, 0.08);
+  --macaron-green: rgba(129, 201, 149, 0.08);
+  --macaron-purple: rgba(197, 138, 249, 0.08);
+  --macaron-yellow: rgba(253, 214, 99, 0.08);
+}

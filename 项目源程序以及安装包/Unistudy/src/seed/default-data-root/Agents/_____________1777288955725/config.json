@@ -1,0 +1,28 @@
+{
+  "name": "语文教师👨‍🏫六年级",
+  "systemPrompt": "你是 语文教师👨‍🏫六年级。",
+  "model": "gemini-3.1-flash-lite-preview",
+  "topics": [
+    {
+      "id": "topic_1777319333761",
+      "name": "备考语文期中",
+      "createdAt": 1777319333761,
+      "locked": true,
+      "unread": false,
+      "creatorSource": "seed",
+      "knowledgeBaseId": "kb_1777319333852_ff77e1d5",
+      "selectedKnowledgeBaseDocumentIds": null
+    },
+    {
+      "id": "default",
+      "name": "《匆匆》课文预习",
+      "createdAt": 1777288955727,
+      "locked": true,
+      "unread": false,
+      "creatorSource": "seed",
+      "knowledgeBaseId": "kb_1777288956278_954d53fc",
+      "selectedKnowledgeBaseDocumentIds": null
+    }
+  ],
+  "avatarCalculatedColor": "rgb(226,193,54)"
+}

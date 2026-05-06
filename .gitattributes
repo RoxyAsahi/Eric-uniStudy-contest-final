@@ -1,0 +1,5 @@
+*.exe filter=lfs diff=lfs merge=lfs -text
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
+项目源程序以及安装包/UniStudy-v0.1.0-Setup.exe filter=lfs diff=lfs merge=lfs -text
+项目演示视频/Unistudy项目介绍杨晨晢.mp4 filter=lfs diff=lfs merge=lfs -text

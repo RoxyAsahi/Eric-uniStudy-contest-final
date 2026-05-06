@@ -1,0 +1,47 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      npm_config_registry: https://registry.npmmirror.com
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+      ELECTRON_BUILDER_BINARIES_MIRROR: https://npmmirror.com/mirrors/electron-builder-binaries/
+      npm_config_disturl: https://npmmirror.com/mirrors/node/
+      SHARP_IGNORE_GLOBAL_LIBVIPS: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload Windows EXE artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: unistudy-windows-exe
+          if-no-files-found: error
+          path: |
+            dist/*.exe
+            dist/*.yml
+            dist/*.blockmap

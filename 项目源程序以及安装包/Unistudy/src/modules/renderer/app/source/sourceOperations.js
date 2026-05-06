@@ -1,0 +1,637 @@
+import {
+    TOPIC_SOURCE_FILE_LIMIT,
+    buildTopicSourceName,
+    canReuseSelectedKnowledgeBaseDocuments,
+} from './sourceModel.js';
+
+function createSourceOperations(deps = {}) {
+    const state = deps.state;
+    const el = deps.el;
+    const chatAPI = deps.chatAPI;
+    const ui = deps.ui;
+    const renderTopics = deps.renderTopics || (() => {});
+    const openSettingsModal = deps.openSettingsModal || (() => {});
+    const loadTopics = deps.loadTopics || (async () => {});
+    const syncReaderFromDocuments = deps.syncReaderFromDocuments || (() => {});
+    const getNativePathForFile = deps.getNativePathForFile || (async () => '');
+    const getCurrentTopic = deps.getCurrentTopic || (() => null);
+    const getCurrentTopicKnowledgeBaseId = deps.getCurrentTopicKnowledgeBaseId || (() => null);
+    const updateTopicKnowledgeBaseBinding = deps.updateTopicKnowledgeBaseBinding || (() => {});
+    const updateTopicSourceSelection = deps.updateTopicSourceSelection || (() => {});
+    const getFacade = deps.getFacade || (() => ({}));
+
+    function normalizeDocumentIds(documentIds = []) {
+        return [...new Set((Array.isArray(documentIds) ? documentIds : [])
+            .map((id) => String(id || '').trim())
+            .filter(Boolean))];
+    }
+
+    function getTopicSelectedDocumentIds() {
+        const currentTopic = getCurrentTopic();
+        return Array.isArray(currentTopic?.selectedKnowledgeBaseDocumentIds)
+            ? normalizeDocumentIds(currentTopic.selectedKnowledgeBaseDocumentIds)
+            : null;
+    }
+
+    function getAllTopicDocumentIds() {
+        return normalizeDocumentIds(state.topicKnowledgeBaseDocuments.map((item) => item.id));
+    }
+
+    function splitDocumentNameForRename(name = '') {
+        const documentName = String(name || '').trim();
+        const dotIndex = documentName.lastIndexOf('.');
+        if (dotIndex <= 0 || dotIndex === documentName.length - 1) {
+            return {
+                baseName: documentName,
+                extension: '',
+            };
+        }
+
+        return {
+            baseName: documentName.slice(0, dotIndex),
+            extension: documentName.slice(dotIndex),
+        };
+    }
+
+    function replaceDocumentInSourceState(documentId, patch = {}) {
+        const normalizedDocumentId = String(documentId || '').trim();
+        if (!normalizedDocumentId) {
+            return;
+        }
+
+        const applyPatch = (items = []) => items.map((item) => (
+            item.id === normalizedDocumentId
+                ? { ...item, ...patch }
+                : item
+        ));
+
+        state.knowledgeBaseDocuments = applyPatch(state.knowledgeBaseDocuments);
+        state.topicKnowledgeBaseDocuments = applyPatch(state.topicKnowledgeBaseDocuments);
+        syncReaderFromDocuments([
+            ...state.topicKnowledgeBaseDocuments,
+            ...state.knowledgeBaseDocuments,
+        ], { resetIfMissing: false });
+    }
+
+    async function persistCurrentTopicSourceSelection(documentIds) {
+        if (!state.currentSelectedItem.id || !state.currentTopicId) {
+            return false;
+        }
+
+        const selectedKnowledgeBaseDocumentIds = Array.isArray(documentIds)
+            ? normalizeDocumentIds(documentIds)
+            : null;
+        const result = await chatAPI.setTopicSourceSelection(
+            state.currentSelectedItem.id,
+            state.currentTopicId,
+            selectedKnowledgeBaseDocumentIds
+        ).catch((error) => ({
+            success: false,
+            error: error.message,
+        }));
+
+        if (!result?.success) {
+            ui.showToastNotification(`更新来源选择失败：${result?.error || '未知错误'}`, 'error');
+            return false;
+        }
+
+        updateTopicSourceSelection(selectedKnowledgeBaseDocumentIds);
+        return true;
+    }
+
+    async function toggleTopicSourceDocument(documentId) {
+        const normalizedDocumentId = String(documentId || '').trim();
+        if (!normalizedDocumentId) {
+            return;
+        }
+
+        const allDocumentIds = getAllTopicDocumentIds();
+        const currentSelection = getTopicSelectedDocumentIds();
+        const selectedSet = new Set(currentSelection || allDocumentIds);
+        if (selectedSet.has(normalizedDocumentId)) {
+            selectedSet.delete(normalizedDocumentId);
+        } else {
+            selectedSet.add(normalizedDocumentId);
+        }
+
+        const nextSelection = allDocumentIds.filter((id) => selectedSet.has(id));
+        if (await persistCurrentTopicSourceSelection(nextSelection)) {
+            getFacade().renderTopicKnowledgeBaseFiles();
+        }
+    }
+
+    async function setAllTopicSourceDocumentsSelected(selected = true) {
+        const nextSelection = selected ? null : [];
+        if (await persistCurrentTopicSourceSelection(nextSelection)) {
+            getFacade().renderTopicKnowledgeBaseFiles();
+        }
+    }
+
+    async function refreshKnowledgeBaseSummaries(options = {}) {
+        const result = await chatAPI.listKnowledgeBases().catch((error) => ({
+            success: false,
+            error: error.message,
+            items: [],
+        }));
+
+        if (!result?.success) {
+            if (options.silent !== true) {
+                ui.showToastNotification(`加载 Source 失败：${result?.error || '未知错误'}`, 'error');
+            }
+            state.knowledgeBases = [];
+            state.knowledgeBaseDocuments = [];
+            state.topicKnowledgeBaseDocuments = [];
+            state.knowledgeBaseDebugResult = null;
+            state.selectedKnowledgeBaseId = null;
+            getFacade().renderKnowledgeBaseManager();
+            getFacade().renderTopicKnowledgeBaseFiles();
+            getFacade().syncCurrentTopicKnowledgeBaseControls();
+            return false;
+        }
+
+        state.knowledgeBases = Array.isArray(result.items) ? result.items : [];
+        if (!state.knowledgeBases.some((item) => item.id === state.selectedKnowledgeBaseId)) {
+            state.knowledgeBaseDebugResult = null;
+            state.selectedKnowledgeBaseId = state.knowledgeBases[0]?.id || null;
+        }
+
+        return true;
+    }
+
+    async function loadKnowledgeBaseDocuments(kbId, options = {}) {
+        const isTopicTarget = options.target === 'topic';
+        const target = isTopicTarget ? 'topicKnowledgeBaseDocuments' : 'knowledgeBaseDocuments';
+
+        if (!kbId) {
+            state[target] = [];
+            if (isTopicTarget) {
+                syncReaderFromDocuments([], { resetIfMissing: true });
+            }
+            if (isTopicTarget) {
+                getFacade().renderTopicKnowledgeBaseFiles();
+            } else {
+                getFacade().renderKnowledgeBaseManager();
+            }
+            return [];
+        }
+
+        const result = await chatAPI.listKnowledgeBaseDocuments(kbId).catch((error) => ({
+            success: false,
+            error: error.message,
+            items: [],
+        }));
+
+        if (!result?.success) {
+            state[target] = [];
+            if (isTopicTarget) {
+                syncReaderFromDocuments([], { resetIfMissing: true });
+            }
+            if (options.silent !== true) {
+                ui.showToastNotification(`加载 Source 文档失败：${result?.error || '未知错误'}`, 'error');
+            }
+            if (isTopicTarget) {
+                getFacade().renderTopicKnowledgeBaseFiles();
+            } else {
+                getFacade().renderKnowledgeBaseManager();
+            }
+            return [];
+        }
+
+        state[target] = Array.isArray(result.items) ? result.items : [];
+        syncReaderFromDocuments(state[target], { resetIfMissing: isTopicTarget });
+
+        if (isTopicTarget) {
+            getFacade().renderTopicKnowledgeBaseFiles();
+        } else {
+            getFacade().renderKnowledgeBaseManager();
+        }
+        return state[target];
+    }
+
+    async function loadCurrentTopicKnowledgeBaseDocuments(options = {}) {
+        const kbId = getCurrentTopicKnowledgeBaseId();
+        if (!kbId) {
+            state.topicKnowledgeBaseDocuments = [];
+            getFacade().renderTopicKnowledgeBaseFiles();
+            return [];
+        }
+
+        if (canReuseSelectedKnowledgeBaseDocuments({
+            topicKnowledgeBaseId: kbId,
+            selectedKnowledgeBaseId: state.selectedKnowledgeBaseId,
+            reuseSelected: options.reuseSelected,
+        })) {
+            state.topicKnowledgeBaseDocuments = [...state.knowledgeBaseDocuments];
+            syncReaderFromDocuments(state.topicKnowledgeBaseDocuments, { resetIfMissing: true });
+            getFacade().renderTopicKnowledgeBaseFiles();
+            return state.topicKnowledgeBaseDocuments;
+        }
+
+        return loadKnowledgeBaseDocuments(kbId, { ...options, target: 'topic' });
+    }
+
+    async function loadKnowledgeBases(options = {}) {
+        const loaded = await refreshKnowledgeBaseSummaries(options);
+        if (!loaded) {
+            return;
+        }
+
+        await loadKnowledgeBaseDocuments(state.selectedKnowledgeBaseId, { silent: true });
+        await loadCurrentTopicKnowledgeBaseDocuments({ silent: true });
+        getFacade().renderKnowledgeBaseManager();
+        getFacade().renderTopicKnowledgeBaseFiles();
+        getFacade().syncCurrentTopicKnowledgeBaseControls();
+        renderTopics();
+    }
+
+    async function refreshKnowledgeBasePollingTargets() {
+        const loaded = await refreshKnowledgeBaseSummaries({ silent: true });
+        if (!loaded) {
+            return;
+        }
+
+        const selectedKbId = state.selectedKnowledgeBaseId || null;
+        const topicKbId = getCurrentTopicKnowledgeBaseId();
+
+        if (selectedKbId && selectedKbId === topicKbId) {
+            const documents = await loadKnowledgeBaseDocuments(selectedKbId, { silent: true });
+            state.topicKnowledgeBaseDocuments = Array.isArray(documents) ? [...documents] : [];
+            getFacade().renderTopicKnowledgeBaseFiles();
+        } else {
+            await Promise.all([
+                loadKnowledgeBaseDocuments(selectedKbId, { silent: true }),
+                loadCurrentTopicKnowledgeBaseDocuments({ silent: true }),
+            ]);
+        }
+
+        getFacade().renderKnowledgeBaseManager();
+        getFacade().renderTopicKnowledgeBaseFiles();
+        getFacade().syncCurrentTopicKnowledgeBaseControls();
+        renderTopics();
+    }
+
+    async function ensureTopicSource(options = {}) {
+        if (!state.currentSelectedItem.id || !state.currentTopicId) {
+            return null;
+        }
+
+        const currentTopic = getCurrentTopic();
+        if (!currentTopic) {
+            return null;
+        }
+
+        if (currentTopic.knowledgeBaseId) {
+            return currentTopic.knowledgeBaseId;
+        }
+
+        const createResult = await chatAPI.createKnowledgeBase({
+            name: buildTopicSourceName({
+                topic: currentTopic,
+                agentName: state.currentSelectedItem.name || '',
+            }),
+        }).catch((error) => ({
+            success: false,
+            error: error.message,
+        }));
+
+        if (!createResult?.success || !createResult.item?.id) {
+            if (options.silent !== true) {
+                ui.showToastNotification(`创建当前话题 Source 失败：${createResult?.error || '未知错误'}`, 'error');
+            }
+            return null;
+        }
+
+        const nextKbId = createResult.item.id;
+        const bindResult = await chatAPI.setTopicKnowledgeBase(
+            state.currentSelectedItem.id,
+            state.currentTopicId,
+            nextKbId
+        ).catch((error) => ({
+            success: false,
+            error: error.message,
+        }));
+
+        if (!bindResult?.success) {
+            if (options.silent !== true) {
+                ui.showToastNotification(`准备当前话题 Source 失败：${bindResult?.error || '未知错误'}`, 'error');
+            }
+            return null;
+        }
+
+        updateTopicKnowledgeBaseBinding(nextKbId);
+        state.selectedKnowledgeBaseId = nextKbId;
+        await loadKnowledgeBases({ silent: true });
+        getFacade().syncCurrentTopicKnowledgeBaseControls();
+
+        if (options.silent !== true) {
+            ui.showToastNotification('已为当前话题自动准备独立 Source。', 'success');
+        }
+
+        return nextKbId;
+    }
+
+    async function openKnowledgeBaseManager() {
+        const currentKbId = getCurrentTopicKnowledgeBaseId() || await ensureTopicSource({ silent: true });
+        if (currentKbId) {
+            state.selectedKnowledgeBaseId = currentKbId;
+            await loadKnowledgeBaseDocuments(currentKbId, { silent: true });
+        } else if (state.selectedKnowledgeBaseId) {
+            await loadKnowledgeBaseDocuments(state.selectedKnowledgeBaseId, { silent: true });
+        }
+
+        getFacade().renderKnowledgeBaseManager();
+        openSettingsModal('knowledge-base', el.openKnowledgeBaseManagerBtn);
+    }
+
+    async function importKnowledgeBaseFilesForKb(kbId, files, options = {}) {
+        const fileEntries = Array.from(files || []);
+        if (!kbId || fileEntries.length === 0) {
+            return;
+        }
+
+        const payloads = (await Promise.all(fileEntries.map(async (file) => ({
+            name: file.name,
+            path: await getNativePathForFile(file),
+            type: file.type,
+            size: file.size,
+        })))).filter((item) => item.path);
+
+        if (payloads.length === 0) {
+            ui.showToastNotification('当前文件未能解析到本地路径，无法导入 Source 文档。请重新选择文件后再试。', 'warning');
+            return;
+        }
+
+        if (kbId === getCurrentTopicKnowledgeBaseId()) {
+            const currentCount = state.topicKnowledgeBaseDocuments.length;
+            if (currentCount >= TOPIC_SOURCE_FILE_LIMIT) {
+                ui.showToastNotification(`当前话题最多绑定 ${TOPIC_SOURCE_FILE_LIMIT} 个资料文件。`, 'warning');
+                return;
+            }
+
+            if (currentCount + payloads.length > TOPIC_SOURCE_FILE_LIMIT) {
+                payloads.splice(TOPIC_SOURCE_FILE_LIMIT - currentCount);
+                ui.showToastNotification(`当前话题资料上限为 ${TOPIC_SOURCE_FILE_LIMIT} 个，已自动截断本次上传。`, 'warning', 4000);
+            }
+        }
+
+        const result = await chatAPI.importKnowledgeBaseFiles(kbId, payloads);
+        if (!result?.success) {
+            ui.showToastNotification(`导入 Source 文件失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        const importedDocumentIds = Array.isArray(result.items)
+            ? result.items.map((item) => item?.id).filter(Boolean)
+            : [];
+
+        if (kbId === state.selectedKnowledgeBaseId) {
+            await loadKnowledgeBaseDocuments(kbId, { silent: true });
+        }
+        if (kbId === getCurrentTopicKnowledgeBaseId()) {
+            await loadCurrentTopicKnowledgeBaseDocuments({ silent: true, reuseSelected: false });
+            const currentSelection = getTopicSelectedDocumentIds();
+            if (currentSelection && importedDocumentIds.length > 0) {
+                await persistCurrentTopicSourceSelection([...currentSelection, ...importedDocumentIds]);
+            }
+        }
+
+        await loadKnowledgeBases({ silent: true });
+        if (options.toastSuccess !== false) {
+            ui.showToastNotification(`已开始导入 ${payloads.length} 个资料文件。`, 'success');
+        }
+    }
+
+    async function createKnowledgeBase() {
+        const name = el.knowledgeBaseNameInput?.value.trim();
+        if (!name) {
+            ui.showToastNotification('请输入 Source 名称。', 'warning');
+            return;
+        }
+
+        const result = await chatAPI.createKnowledgeBase({ name });
+        if (!result?.success) {
+            ui.showToastNotification(`创建 Source 失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        state.selectedKnowledgeBaseId = result.item?.id || null;
+        await loadKnowledgeBases({ silent: true });
+    }
+
+    async function renameKnowledgeBase() {
+        if (!state.selectedKnowledgeBaseId) {
+            return;
+        }
+
+        const name = el.knowledgeBaseNameInput?.value.trim();
+        if (!name) {
+            ui.showToastNotification('请输入新的 Source 名称。', 'warning');
+            return;
+        }
+
+        const result = await chatAPI.updateKnowledgeBase(state.selectedKnowledgeBaseId, { name });
+        if (!result?.success) {
+            ui.showToastNotification(`重命名 Source 失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        await loadKnowledgeBases({ silent: true });
+    }
+
+    async function renameKnowledgeBaseDocument(documentItem = {}) {
+        const documentId = String(documentItem?.id || '').trim();
+        if (!documentId) {
+            return;
+        }
+
+        if (typeof chatAPI.renameKnowledgeBaseDocument !== 'function' || typeof ui.showPromptDialog !== 'function') {
+            ui.showToastNotification('当前版本暂不支持重命名来源文件。', 'warning');
+            return;
+        }
+
+        const { baseName, extension } = splitDocumentNameForRename(documentItem.name || '');
+        const nextBaseName = await ui.showPromptDialog({
+            title: '重命名来源',
+            message: extension ? `原扩展名 ${extension} 会自动保留。` : '更新来源文件名。',
+            placeholder: '文件名',
+            defaultValue: baseName,
+            confirmText: '保存',
+            cancelText: '取消',
+            validate(value) {
+                const trimmed = String(value || '').trim();
+                if (!trimmed) {
+                    return '文件名不能为空。';
+                }
+                if (/[\\/]/.test(trimmed)) {
+                    return '文件名不能包含路径分隔符。';
+                }
+                return '';
+            },
+        });
+        if (!nextBaseName) {
+            return;
+        }
+
+        const nextName = `${String(nextBaseName).trim()}${extension}`;
+        if (nextName === documentItem.name) {
+            return;
+        }
+
+        const result = await chatAPI.renameKnowledgeBaseDocument(documentId, { name: nextName })
+            .catch((error) => ({
+                success: false,
+                error: error.message,
+            }));
+        if (!result?.success) {
+            ui.showToastNotification(`重命名来源文件失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        const renamedDocument = {
+            ...documentItem,
+            ...(result.item || {}),
+            name: result.item?.name || nextName,
+        };
+        replaceDocumentInSourceState(documentId, renamedDocument);
+        getFacade().renderKnowledgeBaseManager();
+        getFacade().renderTopicKnowledgeBaseFiles();
+        ui.showToastNotification('已重命名来源文件。', 'success');
+    }
+
+    async function deleteKnowledgeBase() {
+        if (!state.selectedKnowledgeBaseId) {
+            return;
+        }
+
+        const currentKb = state.knowledgeBases.find((item) => item.id === state.selectedKnowledgeBaseId);
+        const confirmed = await ui.showConfirmDialog(
+            `确定删除 Source ${currentKb?.name || state.selectedKnowledgeBaseId} 吗？`,
+            '删除 Source',
+            '删除',
+            '取消',
+            true
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        const result = await chatAPI.deleteKnowledgeBase(state.selectedKnowledgeBaseId);
+        if (!result?.success) {
+            ui.showToastNotification(`删除 Source 失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        state.selectedKnowledgeBaseId = null;
+        await loadKnowledgeBases({ silent: true });
+        await loadTopics();
+    }
+
+    async function importKnowledgeBaseFilesFromInput(files) {
+        await importKnowledgeBaseFilesForKb(state.selectedKnowledgeBaseId, files, { toastSuccess: false });
+    }
+
+    async function handleTopicKnowledgeBaseChange(nextValue = null) {
+        if (!state.currentSelectedItem.id || !state.currentTopicId) {
+            return;
+        }
+
+        const selectedValue = nextValue ?? el.currentTopicKnowledgeBaseSelect?.value ?? el.sourcePanelKnowledgeBaseSelect?.value ?? '';
+        const kbId = selectedValue || null;
+        const result = await chatAPI.setTopicKnowledgeBase(state.currentSelectedItem.id, state.currentTopicId, kbId);
+        if (!result?.success) {
+            ui.showToastNotification(`绑定 Source 失败：${result?.error || '未知错误'}`, 'error');
+            getFacade().syncCurrentTopicKnowledgeBaseControls();
+            return;
+        }
+
+        updateTopicKnowledgeBaseBinding(kbId);
+        updateTopicSourceSelection(null);
+        renderTopics();
+        getFacade().syncCurrentTopicKnowledgeBaseControls();
+        await loadCurrentTopicKnowledgeBaseDocuments({ silent: true, reuseSelected: false });
+    }
+
+    async function runKnowledgeBaseSearch() {
+        if (!state.selectedKnowledgeBaseId) {
+            ui.showToastNotification('请先选择一个 Source。', 'warning');
+            return;
+        }
+
+        const query = el.knowledgeBaseDebugQueryInput?.value.trim();
+        if (!query) {
+            ui.showToastNotification('请输入要搜索的 query。', 'warning');
+            return;
+        }
+
+        const result = await chatAPI.searchKnowledgeBase({
+            kbId: state.selectedKnowledgeBaseId,
+            query,
+        });
+        if (!result?.success) {
+            ui.showToastNotification(`Source 搜索失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        state.knowledgeBaseDebugResult = {
+            mode: 'search',
+            query,
+            items: Array.isArray(result.items) ? result.items : [],
+            rerankApplied: result.rerankApplied === true,
+            rerankFallbackReason: result.rerankFallbackReason || null,
+        };
+        getFacade().renderKnowledgeBaseDebugResults();
+    }
+
+    async function runKnowledgeBaseDebug() {
+        if (!state.selectedKnowledgeBaseId) {
+            ui.showToastNotification('请先选择一个 Source。', 'warning');
+            return;
+        }
+
+        const query = el.knowledgeBaseDebugQueryInput?.value.trim();
+        if (!query) {
+            ui.showToastNotification('请输入要调试的 query。', 'warning');
+            return;
+        }
+
+        const result = await chatAPI.getKnowledgeBaseRetrievalDebug({
+            kbId: state.selectedKnowledgeBaseId,
+            query,
+        });
+        if (!result?.success) {
+            ui.showToastNotification(`Source 调试失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        state.knowledgeBaseDebugResult = {
+            mode: 'debug',
+            ...result,
+        };
+        getFacade().renderKnowledgeBaseDebugResults();
+    }
+
+    return {
+        createKnowledgeBase,
+        deleteKnowledgeBase,
+        ensureTopicSource,
+        handleTopicKnowledgeBaseChange,
+        importKnowledgeBaseFilesForKb,
+        importKnowledgeBaseFilesFromInput,
+        loadCurrentTopicKnowledgeBaseDocuments,
+        loadKnowledgeBaseDocuments,
+        loadKnowledgeBases,
+        openKnowledgeBaseManager,
+        refreshKnowledgeBasePollingTargets,
+        refreshKnowledgeBaseSummaries,
+        renameKnowledgeBase,
+        renameKnowledgeBaseDocument,
+        runKnowledgeBaseDebug,
+        runKnowledgeBaseSearch,
+        setAllTopicSourceDocumentsSelected,
+        toggleTopicSourceDocument,
+    };
+}
+
+export {
+    createSourceOperations,
+};

@@ -1,0 +1,984 @@
+const test = require('node:test');
+const assert = require('assert/strict');
+const fs = require('fs/promises');
+const path = require('path');
+const { JSDOM } = require('jsdom');
+
+async function buildModuleDataUrl(filePath, moduleCache = new Map()) {
+    const normalizedPath = path.resolve(filePath);
+    if (moduleCache.has(normalizedPath)) {
+        return moduleCache.get(normalizedPath);
+    }
+
+    let source = await fs.readFile(normalizedPath, 'utf8');
+    const importMatches = [...source.matchAll(/from\s+['"](\.[^'"]+)['"]/g)];
+    for (const match of importMatches) {
+        const specifier = match[1];
+        const dependencyPath = path.resolve(path.dirname(normalizedPath), specifier);
+        const dependencyUrl = await buildModuleDataUrl(dependencyPath, moduleCache);
+        source = source.replace(`from '${specifier}'`, `from '${dependencyUrl}'`);
+        source = source.replace(`from "${specifier}"`, `from "${dependencyUrl}"`);
+    }
+
+    const dataUrl = `data:text/javascript;base64,${Buffer.from(source, 'utf8').toString('base64')}`;
+    moduleCache.set(normalizedPath, dataUrl);
+    return dataUrl;
+}
+
+async function loadWorkspaceModule() {
+    const modulePath = path.resolve(__dirname, '..', 'src/modules/renderer/app/workspace/workspaceController.js');
+    return import(await buildModuleDataUrl(modulePath));
+}
+
+function createStore(initialState) {
+    const state = initialState;
+    return {
+        getState() {
+            return state;
+        },
+        patchState(slice, patch) {
+            const currentSlice = state[slice];
+            state[slice] = typeof patch === 'function'
+                ? patch(currentSlice, state)
+                : { ...currentSlice, ...patch };
+            return state[slice];
+        },
+        subscribe() {
+            return () => {};
+        },
+    };
+}
+
+function createControllerHarness(overrides = {}) {
+    const watcherCalls = [];
+    const state = {
+        settings: {
+            settings: {
+                userName: 'User',
+            },
+        },
+        layout: {
+            workspaceViewMode: 'overview',
+        },
+        session: {
+            agents: [],
+            topics: [{ id: 'topic-2', name: 'Topic 2', createdAt: Date.now() }],
+            currentTopicId: 'topic-1',
+            currentChatHistory: [],
+            currentSelectedItem: {
+                id: 'agent-1',
+                type: 'agent',
+                name: 'Agent 1',
+                avatarUrl: null,
+                config: {
+                    agentDataPath: 'C:\\data\\agent-1',
+                },
+            },
+            activeTopicMenu: null,
+        },
+    };
+
+    const chatAPI = {
+        async watcherStop() {
+            watcherCalls.push(['stop']);
+            return { success: true };
+        },
+        async watcherStart(filePath, agentId, topicId) {
+            watcherCalls.push(['start', filePath, agentId, topicId]);
+            return { success: true };
+        },
+        async getChatHistory() {
+            return [];
+        },
+        async setTopicUnread() {
+            return { success: true };
+        },
+        async saveSettings() {
+            return { success: true };
+        },
+        async getAgentConfig(agentId) {
+            return {
+                name: agentId,
+                avatarUrl: null,
+                agentDataPath: 'C:\\data\\agent-1',
+            };
+        },
+        async getAgentTopics() {
+            return [{ id: 'topic-2', name: 'Topic 2', createdAt: Date.now() }];
+        },
+        async getAgents() {
+            return [];
+        },
+        async getUnreadTopicCounts() {
+            return { counts: {} };
+        },
+        async deleteAgent() {
+            watcherCalls.push(['delete-agent']);
+            return { success: true };
+        },
+        ...overrides.chatAPI,
+    };
+
+    return {
+        watcherCalls,
+        state,
+        deps: {
+            store: createStore(state),
+            el: {},
+            chatAPI,
+            ui: {
+                showToastNotification() {},
+                async showConfirmDialog() {
+                    return true;
+                },
+            },
+            windowObj: {
+                addEventListener() {},
+                setInterval() {
+                    return 1;
+                },
+                clearInterval() {},
+            },
+            documentObj: { addEventListener() {} },
+            renderCurrentHistory: async () => {},
+            renderTopicKnowledgeBaseFiles: () => {},
+            syncCurrentTopicKnowledgeBaseControls: () => {},
+            syncComposerAvailability: () => {},
+            renderReaderPanel: () => {},
+            refreshAttachmentPreview: () => {},
+            resetComposerState: () => {},
+            resetNotesState: () => {},
+            resetReaderState: () => {},
+            setLeftSidebarMode: () => {},
+            setLeftReaderTab: () => {},
+            setRightPanelMode: () => {},
+            ensureTopicSource: async () => null,
+            loadCurrentTopicKnowledgeBaseDocuments: async () => {},
+            loadTopicNotes: async () => {},
+            loadAgentNotes: async () => {},
+            populateAgentForm: async () => {},
+            setPromptVisible: () => {},
+            closeSourceFileActionMenu: () => {},
+            hideSourceFileTooltip: () => {},
+            clearTopicKnowledgeBaseDocuments: () => {},
+            getGlobalSettings: () => state.settings.settings,
+            messageRendererApi: {
+                setCurrentTopicId() {},
+                setCurrentSelectedItem() {},
+                setCurrentItemAvatar() {},
+                setCurrentItemAvatarColor() {},
+            },
+        },
+    };
+}
+
+function createOverviewDom() {
+    const dom = new JSDOM(`
+        <body>
+            <section id="workspaceOverviewPage"></section>
+            <main id="workspaceSubjectPage" class="hidden"></main>
+            <button id="workspaceOverviewCreateAgentBtn"></button>
+            <section class="workspace-overview-page__island-row"><div id="dynamicIsland"></div></section>
+            <section id="subjectOverviewGrid"></section>
+        </body>
+    `);
+
+    return {
+        window: dom.window,
+        document: dom.window.document,
+        el: {
+            workspaceOverviewPage: dom.window.document.getElementById('workspaceOverviewPage'),
+            workspaceSubjectPage: dom.window.document.getElementById('workspaceSubjectPage'),
+            workspaceOverviewCreateAgentBtn: dom.window.document.getElementById('workspaceOverviewCreateAgentBtn'),
+            workspaceOverviewIslandRow: dom.window.document.querySelector('.workspace-overview-page__island-row'),
+            dynamicIsland: dom.window.document.getElementById('dynamicIsland'),
+            subjectOverviewGrid: dom.window.document.getElementById('subjectOverviewGrid'),
+        },
+    };
+}
+
+function createTopicListDom() {
+    const dom = new JSDOM(`
+        <body>
+            <input id="topicSearchInput" />
+            <ul id="topicList"></ul>
+        </body>
+    `);
+
+    return {
+        window: dom.window,
+        document: dom.window.document,
+        el: {
+            topicSearchInput: dom.window.document.getElementById('topicSearchInput'),
+            topicList: dom.window.document.getElementById('topicList'),
+        },
+    };
+}
+
+test('workspace subject fallback avatar uses the app logo', async () => {
+    const { DEFAULT_AGENT_AVATAR } = await loadWorkspaceModule();
+
+    assert.equal(DEFAULT_AGENT_AVATAR, '../assets/brand-logo.png');
+});
+
+test('renderTopics prefixes placeholder topic titles with a conversation emoji', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const { window, document, el } = createTopicListDom();
+    harness.state.session.topics = [
+        { id: 'topic-1', name: '新对话 1', createdAt: Date.now() },
+        { id: 'topic-2', name: '📘 作业习题要求', createdAt: Date.now() },
+    ];
+    harness.state.session.currentTopicId = 'topic-1';
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        el: {
+            ...harness.deps.el,
+            ...el,
+        },
+        windowObj: window,
+        documentObj: document,
+    });
+
+    controller.renderTopics();
+
+    const placeholderTopic = document.querySelector('[data-topic-id="topic-1"]');
+    const emojiTopic = document.querySelector('[data-topic-id="topic-2"]');
+    assert.equal(placeholderTopic.querySelector('.topic-item__body strong')?.textContent, '💬 新对话 1');
+    assert.equal(placeholderTopic.querySelector('.topic-item__body strong')?.getAttribute('title'), '💬 新对话 1');
+    assert.equal(emojiTopic.querySelector('.topic-item__body strong')?.textContent, '📘 作业习题要求');
+    assert.equal(emojiTopic.querySelector('.topic-item__body strong')?.getAttribute('title'), '📘 作业习题要求');
+});
+
+test('selectTopic stops the previous watcher before starting the next one', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const controller = createWorkspaceController(harness.deps);
+
+    await controller.selectTopic('topic-2', { fromWatcher: true });
+
+    assert.deepEqual(harness.watcherCalls, [
+        ['stop'],
+        ['start', 'C:\\data\\agent-1\\topics\\topic-2\\history.json', 'agent-1', 'topic-2'],
+    ]);
+});
+
+test('clearCurrentConversationView stops the active watcher', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const controller = createWorkspaceController(harness.deps);
+
+    await controller.clearCurrentConversationView();
+
+    assert.deepEqual(harness.watcherCalls, [['stop']]);
+});
+
+test('deleteCurrentAgent stops the watcher before deleting the agent', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const controller = createWorkspaceController(harness.deps);
+
+    await controller.deleteCurrentAgent();
+
+    assert.deepEqual(harness.watcherCalls, [['stop'], ['delete-agent']]);
+});
+
+test('renderSubjectOverview starts a single clock timer and clears it when leaving overview', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const { window, document, el } = createOverviewDom();
+    let intervalCalls = 0;
+    const clearedIntervals = [];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        el: {
+            ...harness.deps.el,
+            ...el,
+        },
+        windowObj: window,
+        documentObj: document,
+        buildSubjectOverviewMarkup: () => ({
+            headline: '学科总视图',
+            summary: '选择一个学科继续你的学习。',
+            clockMarkup: '<section class="overview-clock-panel"><div id="overviewClockTime">00:00</div></section>',
+            statsRowMarkup: '<section class="overview-stats-row"><article class="overview-stat-card"><span class="overview-stat-card__label">学科</span><strong>1</strong></article></section>',
+            gridMarkup: '<section class="overview-subject-wall"><button id="subjectOverviewCreateCard"></button></section>',
+        }),
+        nowProvider: () => new Date('2026-04-13T09:05:00'),
+        setIntervalFn: (handler) => {
+            intervalCalls += 1;
+            return { handler, id: intervalCalls };
+        },
+        clearIntervalFn: (timerId) => {
+            clearedIntervals.push(timerId.id);
+        },
+    });
+
+    controller.renderSubjectOverview();
+    controller.renderSubjectOverview();
+
+    assert.equal(intervalCalls, 1);
+    assert.equal(document.getElementById('overviewClockTime').textContent, '09:05');
+    assert.equal(document.querySelector('.overview-clock-panel')?.nextElementSibling?.className, 'overview-stats-row');
+    assert.ok(document.querySelector('.workspace-overview-page__island-row'));
+
+    controller.showSubjectWorkspace();
+
+    assert.deepEqual(clearedIntervals, [1]);
+});
+
+test('loadAgents passes seven-day learning trend metrics to the overview renderer', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const fixedNow = new Date('2026-04-27T12:00:00').getTime();
+    const originalDateNow = Date.now;
+    Date.now = () => fixedNow;
+
+    try {
+        const capturedMetrics = [];
+        const harness = createControllerHarness({
+            chatAPI: {
+                async getAgents() {
+                    return [{ id: 'agent-1', name: '数学' }];
+                },
+                async getAgentTopics() {
+                    return [{ id: 'topic-1', name: '函数', createdAt: fixedNow }];
+                },
+                async listStudyLogDays() {
+                    return {
+                        success: true,
+                        items: [
+                            { dateKey: '2026-04-21', entryCount: 2 },
+                            { dateKey: '2026-04-23', entryCount: 0 },
+                            { dateKey: '2026-04-27', entryCount: 3 },
+                        ],
+                    };
+                },
+                async listStudyDiaryWallCards() {
+                    return { success: true, items: [] };
+                },
+            },
+        });
+        const { window, document, el } = createOverviewDom();
+        const controller = createWorkspaceController({
+            ...harness.deps,
+            el: {
+                ...harness.deps.el,
+                ...el,
+            },
+            windowObj: window,
+            documentObj: document,
+            setIntervalFn: () => 1,
+            clearIntervalFn: () => {},
+            buildSubjectOverviewMarkup: ({ learningMetrics }) => {
+                capturedMetrics.push(learningMetrics);
+                return {
+                    headline: '学习工作台',
+                    summary: '',
+                    gridMarkup: '<section class="overview-subject-wall"></section>',
+                };
+            },
+        });
+
+        await controller.loadAgents();
+
+        const metrics = capturedMetrics.at(-1);
+        assert.equal(metrics.activeDaysLast7, 3);
+        assert.equal(metrics.totalLearningDays, 3);
+        assert.equal(metrics.trendDays.length, 7);
+        assert.deepEqual(metrics.trendDays.map((day) => day.dateKey), [
+            '2026-04-21',
+            '2026-04-22',
+            '2026-04-23',
+            '2026-04-24',
+            '2026-04-25',
+            '2026-04-26',
+            '2026-04-27',
+        ]);
+        assert.deepEqual(metrics.trendDays.map((day) => day.value), [2, 0, 1, 0, 0, 0, 3]);
+    } finally {
+        Date.now = originalDateNow;
+    }
+});
+
+test('loadAgents builds a non-empty fallback trend when study log days are unavailable', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const fixedNow = new Date('2026-04-27T12:00:00').getTime();
+    const originalDateNow = Date.now;
+    Date.now = () => fixedNow;
+
+    try {
+        let capturedMetrics = null;
+        const harness = createControllerHarness({
+            chatAPI: {
+                async getAgents() {
+                    return [{ id: 'agent-1', name: '数学' }];
+                },
+                async getAgentTopics() {
+                    return [
+                        { id: 'topic-1', name: '函数', createdAt: fixedNow },
+                        { id: 'topic-2', name: '几何', createdAt: fixedNow - 1000 },
+                    ];
+                },
+                async listStudyDiaryWallCards() {
+                    return { success: true, items: [] };
+                },
+            },
+        });
+        const { window, document, el } = createOverviewDom();
+        const controller = createWorkspaceController({
+            ...harness.deps,
+            el: {
+                ...harness.deps.el,
+                ...el,
+            },
+            windowObj: window,
+            documentObj: document,
+            setIntervalFn: () => 1,
+            clearIntervalFn: () => {},
+            buildSubjectOverviewMarkup: ({ learningMetrics }) => {
+                capturedMetrics = learningMetrics;
+                return {
+                    headline: '学习工作台',
+                    summary: '',
+                    gridMarkup: '<section class="overview-subject-wall"></section>',
+                };
+            },
+        });
+
+        await controller.loadAgents();
+
+        assert.equal(capturedMetrics.trendDays.length, 7);
+        assert.deepEqual(capturedMetrics.trendDays.map((day) => day.dateKey), [
+            '2026-04-21',
+            '2026-04-22',
+            '2026-04-23',
+            '2026-04-24',
+            '2026-04-25',
+            '2026-04-26',
+            '2026-04-27',
+        ]);
+        assert.ok(capturedMetrics.trendDays.some((day) => day.active));
+    } finally {
+        Date.now = originalDateNow;
+    }
+});
+
+test('showSubjectWorkspace requests a deferred desktop layout reset after leaving overview', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness();
+    const { window, document, el } = createOverviewDom();
+    const syncCalls = [];
+    const refreshCalls = [];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        el: {
+            ...harness.deps.el,
+            ...el,
+        },
+        windowObj: window,
+        documentObj: document,
+        syncMobileWorkspaceLayout: () => {
+            syncCalls.push('sync');
+        },
+        refreshWorkspaceLayout: (options) => {
+            refreshCalls.push(options);
+        },
+    });
+
+    controller.showSubjectWorkspace();
+
+    assert.equal(syncCalls.length, 1);
+    assert.deepEqual(refreshCalls, [{
+        frames: 2,
+        resetDesktopLayout: true,
+    }]);
+});
+
+test('overview subject cards open subject management from the right-click menu', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getAgentConfig(agentId) {
+                return {
+                    id: agentId,
+                    name: '数学',
+                    avatarUrl: null,
+                    agentDataPath: `C:\\data\\${agentId}`,
+                };
+            },
+            async getAgentTopics() {
+                return [{ id: 'topic-2', name: 'Topic 2', createdAt: Date.now() }];
+            },
+        },
+    });
+    const { window, document, el } = createOverviewDom();
+    const settingsCalls = [];
+    const subjectPanelCalls = [];
+    harness.state.session.agents = [{ id: 'math', name: '数学' }];
+    harness.state.session.currentSelectedItem = {
+        id: null,
+        type: 'agent',
+        name: null,
+        avatarUrl: null,
+        config: null,
+    };
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        el: {
+            ...harness.deps.el,
+            ...el,
+        },
+        windowObj: window,
+        documentObj: document,
+        buildSubjectOverviewMarkup: () => ({
+            headline: '学习工作台',
+            summary: '',
+            gridMarkup: '<div id="subjectOverviewCollectionHost"></div>',
+        }),
+        buildSubjectCollectionMarkup: () => `
+            <div data-subject-collection>
+                <button type="button" data-subject-card data-agent-id="math">数学</button>
+            </div>
+        `,
+        setIntervalFn: () => 1,
+        clearIntervalFn: () => {},
+        openSettingsModal: (section) => {
+            settingsCalls.push(section);
+        },
+        openSubjectSettingsPanel: (trigger, options = {}) => {
+            subjectPanelCalls.push({
+                triggerText: trigger?.textContent || '',
+                optionKeys: Object.keys(options),
+            });
+        },
+    });
+
+    controller.renderSubjectOverview();
+    const card = document.querySelector('[data-subject-card]');
+    card.dispatchEvent(new window.MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 80,
+        clientY: 90,
+    }));
+
+    const menu = document.querySelector('.subject-action-menu');
+    assert.ok(menu);
+    assert.match(menu.textContent, /学科管理/);
+    assert.match(menu.textContent, /删除/);
+
+    menu.querySelector('[data-subject-action="manage"]').click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.deepEqual(settingsCalls, []);
+    assert.equal(subjectPanelCalls.length, 1);
+    assert.match(subjectPanelCalls[0].triggerText, /学科管理/);
+    assert.deepEqual(subjectPanelCalls[0].optionKeys, []);
+    assert.equal(harness.state.session.currentSelectedItem.id, 'math');
+});
+
+test('createTopic creates a placeholder topic without opening the prompt dialog', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    let promptCalls = 0;
+    let createTopicArgs = null;
+    const harness = createControllerHarness({
+        chatAPI: {
+            async createNewTopicForAgent(agentId, topicName, isBranch, locked) {
+                createTopicArgs = { agentId, topicName, isBranch, locked };
+                return { success: true, topicId: 'topic-new' };
+            },
+            async getAgentTopics() {
+                return [
+                    { id: 'topic-new', name: '新对话 2', createdAt: Date.now() },
+                    { id: 'topic-2', name: 'Topic 2', createdAt: Date.now() },
+                ];
+            },
+        },
+    });
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        ui: {
+            ...harness.deps.ui,
+            async showPromptDialog() {
+                promptCalls += 1;
+                return 'should-not-open';
+            },
+        },
+    });
+
+    await controller.createTopic();
+
+    assert.equal(promptCalls, 0);
+    assert.deepEqual(createTopicArgs, {
+        agentId: 'agent-1',
+        topicName: '',
+        isBranch: false,
+        locked: true,
+    });
+    assert.equal(harness.state.session.currentTopicId, 'topic-new');
+  });
+
+test('syncCurrentTopicHistoryFromFile updates one changed message without reloading the topic', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    let renderCurrentHistoryCalls = 0;
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory(agentId, topicId) {
+                assert.equal(agentId, 'agent-1');
+                assert.equal(topicId, 'topic-1');
+                return [
+                    { id: 'm1', role: 'user', content: 'old question' },
+                    {
+                        id: 'm2',
+                        role: 'assistant',
+                        content: 'new answer',
+                        reasoning_content: 'new reasoning',
+                        kbContextRefs: [{ sourceId: 'kb-1' }],
+                    },
+                ];
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = [
+        { id: 'm1', role: 'user', content: 'old question' },
+        { id: 'm2', role: 'assistant', content: 'old answer' },
+    ];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        renderCurrentHistory: async () => {
+            renderCurrentHistoryCalls += 1;
+        },
+        messageRendererApi: {
+            updateMessageContent(messageId, content) {
+                calls.push(['update', messageId, content]);
+            },
+            removeMessageById(messageId, saveHistory) {
+                calls.push(['remove', messageId, saveHistory]);
+            },
+            async renderMessage(message, isInitialLoad) {
+                calls.push(['render', message.id, isInitialLoad]);
+            },
+            getActiveStreamingMessageId() {
+                return null;
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, [['update', 'm2', 'new answer']]);
+    assert.equal(renderCurrentHistoryCalls, 0);
+    assert.deepEqual(harness.watcherCalls, []);
+    assert.equal(harness.state.session.currentChatHistory[1].content, 'new answer');
+    assert.equal(harness.state.session.currentChatHistory[1].reasoning_content, 'new reasoning');
+});
+
+test('syncCurrentTopicHistoryFromFile removes deleted messages and appends new tail messages', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                return [
+                    { id: 'm1', role: 'user', content: 'keep' },
+                    { id: 'm3', role: 'assistant', content: 'added' },
+                ];
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = [
+        { id: 'm1', role: 'user', content: 'keep' },
+        { id: 'm2', role: 'assistant', content: 'delete me' },
+    ];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        messageRendererApi: {
+            updateMessageContent(messageId, content) {
+                calls.push(['update', messageId, content]);
+            },
+            removeMessageById(messageId, saveHistory) {
+                calls.push(['remove', messageId, saveHistory]);
+            },
+            async renderMessage(message, isInitialLoad) {
+                calls.push(['render', message.id, isInitialLoad]);
+            },
+            getActiveStreamingMessageId() {
+                return null;
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, [
+        ['remove', 'm2', false],
+        ['render', 'm3', true],
+    ]);
+    assert.deepEqual(harness.state.session.currentChatHistory.map((message) => message.id), ['m1', 'm3']);
+});
+
+test('syncCurrentTopicHistoryFromFile protects the active streaming message from file changes', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                return [
+                    { id: 'm1', role: 'user', content: 'keep' },
+                    { id: 'm2', role: 'assistant', content: 'disk version' },
+                ];
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = [
+        { id: 'm1', role: 'user', content: 'keep' },
+        { id: 'm2', role: 'assistant', content: 'live streaming text' },
+    ];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        messageRendererApi: {
+            updateMessageContent(messageId, content) {
+                calls.push(['update', messageId, content]);
+            },
+            removeMessageById(messageId, saveHistory) {
+                calls.push(['remove', messageId, saveHistory]);
+            },
+            async renderMessage(message, isInitialLoad) {
+                calls.push(['render', message.id, isInitialLoad]);
+            },
+            getActiveStreamingMessageId() {
+                return 'm2';
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, []);
+    assert.equal(harness.state.session.currentChatHistory[1].content, 'live streaming text');
+    assert.equal(result.skippedActiveStreamingMessageId, 'm2');
+});
+
+test('syncCurrentTopicHistoryFromFile reorders rendered messages without reloading the topic', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    let renderCurrentHistoryCalls = 0;
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                return [
+                    { id: 'm2', role: 'assistant', content: 'second' },
+                    { id: 'm1', role: 'user', content: 'first' },
+                    { id: 'm3', role: 'assistant', content: 'third' },
+                ];
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = [
+        { id: 'm1', role: 'user', content: 'first' },
+        { id: 'm2', role: 'assistant', content: 'second' },
+        { id: 'm3', role: 'assistant', content: 'third' },
+    ];
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        renderCurrentHistory: async () => {
+            renderCurrentHistoryCalls += 1;
+        },
+        messageRendererApi: {
+            getActiveStreamingMessageId() {
+                return null;
+            },
+            reorderRenderedMessagesById(ids) {
+                calls.push(['reorder', ids]);
+                return ids;
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, [['reorder', ['m2', 'm1', 'm3']]]);
+    assert.deepEqual(result.reorderedIds, ['m2', 'm1', 'm3']);
+    assert.equal(renderCurrentHistoryCalls, 0);
+    assert.deepEqual(harness.state.session.currentChatHistory.map((message) => message.id), ['m2', 'm1', 'm3']);
+});
+
+test('syncCurrentTopicHistoryFromFile keeps non-rendered window messages memory-only', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    const oldHistory = Array.from({ length: 100 }, (_value, index) => ({
+        id: `m${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `old ${index}`,
+    }));
+    const nextHistory = oldHistory.map((message) => (
+        message.id === 'm10'
+            ? { ...message, content: 'updated old hidden message' }
+            : { ...message }
+    ));
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                return nextHistory;
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = oldHistory;
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        messageRendererApi: {
+            updateMessageContent(messageId, content) {
+                calls.push(['update', messageId, content]);
+            },
+            getActiveStreamingMessageId() {
+                return null;
+            },
+            isHistoryWindowActive() {
+                return true;
+            },
+            getRenderedMessageIds() {
+                return Array.from({ length: 30 }, (_value, index) => `m${70 + index}`);
+            },
+            getHistoryWindowSnapshot() {
+                return {
+                    active: true,
+                    renderedStartIndex: 70,
+                    renderedIds: Array.from({ length: 30 }, (_value, index) => `m${70 + index}`),
+                    totalCount: 100,
+                };
+            },
+            syncHistoryWindowHistory(history) {
+                calls.push(['sync-window', history.length]);
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, [['sync-window', 100]]);
+    assert.deepEqual(result.memoryOnlyIds, ['m10']);
+    assert.equal(harness.state.session.currentChatHistory[10].content, 'updated old hidden message');
+});
+
+test('syncCurrentTopicHistoryFromFile updates visible window messages locally', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const calls = [];
+    const oldHistory = Array.from({ length: 100 }, (_value, index) => ({
+        id: `m${index}`,
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `old ${index}`,
+    }));
+    const nextHistory = oldHistory.map((message) => (
+        message.id === 'm72'
+            ? { ...message, content: 'updated visible message' }
+            : { ...message }
+    ));
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                return nextHistory;
+            },
+        },
+    });
+    harness.state.session.currentChatHistory = oldHistory;
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        messageRendererApi: {
+            updateMessageContent(messageId, content) {
+                calls.push(['update', messageId, content]);
+            },
+            getActiveStreamingMessageId() {
+                return null;
+            },
+            isHistoryWindowActive() {
+                return true;
+            },
+            getRenderedMessageIds() {
+                return Array.from({ length: 30 }, (_value, index) => `m${70 + index}`);
+            },
+            getHistoryWindowSnapshot() {
+                return {
+                    active: true,
+                    renderedStartIndex: 70,
+                    renderedIds: Array.from({ length: 30 }, (_value, index) => `m${70 + index}`),
+                    totalCount: 100,
+                };
+            },
+            syncHistoryWindowHistory(history) {
+                calls.push(['sync-window', history.length]);
+            },
+        },
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.equal(result.applied, true);
+    assert.deepEqual(calls, [
+        ['update', 'm72', 'updated visible message'],
+        ['sync-window', 100],
+    ]);
+    assert.deepEqual(result.memoryOnlyIds, []);
+});
+
+test('syncCurrentTopicHistoryFromFile skips while a message is being edited', async () => {
+    const { createWorkspaceController } = await loadWorkspaceModule();
+    const dom = new JSDOM('<body><article class="message-item-editing"></article></body>');
+    let getChatHistoryCalls = 0;
+    const harness = createControllerHarness({
+        chatAPI: {
+            async getChatHistory() {
+                getChatHistoryCalls += 1;
+                return [];
+            },
+        },
+    });
+
+    const controller = createWorkspaceController({
+        ...harness.deps,
+        documentObj: dom.window.document,
+    });
+
+    const result = await controller.syncCurrentTopicHistoryFromFile({
+        agentId: 'agent-1',
+        topicId: 'topic-1',
+    });
+
+    assert.deepEqual(result, { applied: false, skipped: true, reason: 'editing' });
+    assert.equal(getChatHistoryCalls, 0);
+});

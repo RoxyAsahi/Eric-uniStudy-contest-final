@@ -1,0 +1,2266 @@
+import { positionFloatingElement } from '../dom/positionFloatingElement.js';
+import { normalizeSubjectCardEmoji, resolveSubjectCardEmoji } from './subjectEmoji.js';
+
+const DEFAULT_AGENT_AVATAR = '../assets/brand-logo.png';
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+const PLACEHOLDER_TOPIC_ICON = '💬';
+const PLACEHOLDER_TOPIC_BASE_NAME = '新对话';
+const LEGACY_PLACEHOLDER_TOPIC_NAMES = new Set([
+    '主要对话',
+    'Main Conversation',
+]);
+
+function normalizeTopicName(name = '') {
+    return String(name || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function isPlaceholderTopicName(name = '') {
+    const normalized = normalizeTopicName(name);
+    if (!normalized) {
+        return false;
+    }
+
+    if (LEGACY_PLACEHOLDER_TOPIC_NAMES.has(normalized)) {
+        return true;
+    }
+
+    return new RegExp(`^${PLACEHOLDER_TOPIC_BASE_NAME}(?:\\s+\\d+)?$`).test(normalized);
+}
+
+function formatTopicDisplayTitle(title = '') {
+    const normalized = normalizeTopicName(title);
+    return isPlaceholderTopicName(normalized)
+        ? `${PLACEHOLDER_TOPIC_ICON} ${normalized}`
+        : normalized;
+}
+
+function shouldPersistTopicSelection(options = {}) {
+    return options.fromWatcher !== true;
+}
+
+function formatOverviewClock(date = new Date()) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
+function formatOverviewClockDate(date = new Date()) {
+    const weekdayNames = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+    return `${month}月${day}日 ${weekdayNames[date.getDay()]}`;
+}
+
+function createWorkspaceController(deps = {}) {
+    const store = deps.store;
+    const el = deps.el;
+    const chatAPI = deps.chatAPI;
+    const ui = deps.ui;
+    const windowObj = deps.windowObj || window;
+    const documentObj = deps.documentObj || document;
+    const normalizeTopic = deps.normalizeTopic || ((topic) => topic);
+    const normalizeHistory = deps.normalizeHistory || ((history) => history);
+    const renderCurrentHistory = deps.renderCurrentHistory || (async () => {});
+    const renderTopicKnowledgeBaseFiles = deps.renderTopicKnowledgeBaseFiles || (() => {});
+    const syncCurrentTopicKnowledgeBaseControls = deps.syncCurrentTopicKnowledgeBaseControls || (() => {});
+    const syncComposerAvailability = deps.syncComposerAvailability || (() => {});
+    const renderReaderPanel = deps.renderReaderPanel || (() => {});
+    const refreshAttachmentPreview = deps.refreshAttachmentPreview || (() => {});
+    const resetComposerState = deps.resetComposerState || (() => {});
+    const resetNotesState = deps.resetNotesState || (() => {});
+    const resetReaderState = deps.resetReaderState || (() => {});
+    const setLeftSidebarMode = deps.setLeftSidebarMode || (() => {});
+    const setLeftReaderTab = deps.setLeftReaderTab || (() => {});
+    const setRightPanelMode = deps.setRightPanelMode || (() => {});
+    const openSettingsModal = deps.openSettingsModal || (() => {});
+    const openSubjectSettingsPanel = deps.openSubjectSettingsPanel || ((trigger) => openSettingsModal('agent', trigger));
+    const closeSubjectSettingsPanel = deps.closeSubjectSettingsPanel || (() => {});
+    const ensureTopicSource = deps.ensureTopicSource || (async () => null);
+    const loadCurrentTopicKnowledgeBaseDocuments = deps.loadCurrentTopicKnowledgeBaseDocuments || (async () => {});
+    const loadTopicNotes = deps.loadTopicNotes || (async () => {});
+    const loadAgentNotes = deps.loadAgentNotes || (async () => {});
+    const refreshLogs = deps.refreshLogs || (async () => {});
+    const populateAgentForm = deps.populateAgentForm || (async () => {});
+    const setPromptVisible = deps.setPromptVisible || (() => {});
+    const messageRendererApi = deps.messageRendererApi || null;
+    const defaultAgentAvatar = deps.defaultAgentAvatar || DEFAULT_AGENT_AVATAR;
+    const buildOverviewMarkup = deps.buildSubjectOverviewMarkup || (() => ({
+        headline: '学科总视图',
+        summary: '把不同学科整理成独立工作台，在这里快速切换学习上下文。',
+        clockMarkup: '',
+        statsRowMarkup: '',
+        gridMarkup: '',
+    }));
+    const buildOverviewCollectionMarkup = deps.buildSubjectCollectionMarkup || (() => '');
+    const nowProvider = deps.nowProvider || (() => new Date());
+    const setIntervalFn = deps.setIntervalFn || ((handler, timeout) => windowObj.setInterval(handler, timeout));
+    const clearIntervalFn = deps.clearIntervalFn || ((timerId) => windowObj.clearInterval(timerId));
+    const closeSourceFileActionMenu = deps.closeSourceFileActionMenu || (() => {});
+    const hideSourceFileTooltip = deps.hideSourceFileTooltip || (() => {});
+    const clearTopicKnowledgeBaseDocuments = deps.clearTopicKnowledgeBaseDocuments || (() => {});
+    const getGlobalSettings = deps.getGlobalSettings || (() => store.getState().settings.settings);
+    const syncMobileWorkspaceLayout = deps.syncMobileWorkspaceLayout || (() => {});
+    const refreshWorkspaceLayout = deps.refreshWorkspaceLayout || (() => {});
+
+    function getSessionSlice() {
+        return store.getState().session;
+    }
+
+    function getLayoutSlice() {
+        return store.getState().layout;
+    }
+
+    function patchSession(patch) {
+        return store.patchState('session', (current, rootState) => ({
+            ...current,
+            ...(typeof patch === 'function' ? patch(current, rootState) : patch),
+        }));
+    }
+
+    function patchLayout(patch) {
+        return store.patchState('layout', (current, rootState) => ({
+            ...current,
+            ...(typeof patch === 'function' ? patch(current, rootState) : patch),
+        }));
+    }
+
+    function updateTopicInSession(topicId, updater) {
+        patchSession((current) => ({
+            topics: current.topics.map((topic) => (
+                topic.id === topicId
+                    ? { ...topic, ...(typeof updater === 'function' ? updater(topic) : updater) }
+                    : topic
+            )),
+        }));
+    }
+
+    const state = {};
+    Object.defineProperties(state, {
+        agents: {
+            get: () => getSessionSlice().agents,
+            set: (value) => patchSession({ agents: value }),
+        },
+        topics: {
+            get: () => getSessionSlice().topics,
+            set: (value) => patchSession({ topics: value }),
+        },
+        currentSelectedItem: {
+            get: () => getSessionSlice().currentSelectedItem,
+            set: (value) => patchSession({ currentSelectedItem: value }),
+        },
+        currentTopicId: {
+            get: () => getSessionSlice().currentTopicId,
+            set: (value) => patchSession({ currentTopicId: value }),
+        },
+        currentChatHistory: {
+            get: () => getSessionSlice().currentChatHistory,
+            set: (value) => patchSession({ currentChatHistory: value }),
+        },
+        activeTopicMenu: {
+            get: () => getSessionSlice().activeTopicMenu,
+            set: (value) => patchSession({ activeTopicMenu: value }),
+        },
+        workspaceViewMode: {
+            get: () => getLayoutSlice().workspaceViewMode,
+            set: (value) => patchLayout({ workspaceViewMode: value }),
+        },
+    });
+
+    let agentOverviewStats = {};
+    let overviewLearningMetrics = {
+        score: 700,
+        streakDays: 0,
+        activeDaysLast7: 0,
+        totalLearningDays: 0,
+        trendDays: [],
+    };
+    let overviewDiaryCards = [];
+    let overviewClockTimerId = null;
+    let overviewSubjectRevealObserver = null;
+    let overviewSubjectRevealResetTimerId = null;
+    let subjectActionMenuElement = null;
+    let activeSubjectActionMenu = null;
+    const overviewSubjectBrowserState = {
+        search: '',
+        sortMode: 'recent',
+        filterMode: 'all',
+    };
+
+    function normalizeDateToDayStart(value) {
+        const date = new Date(Number(value || Date.now()));
+        date.setHours(0, 0, 0, 0);
+        return date.getTime();
+    }
+
+    function formatDateKeyFromTimestamp(value) {
+        const date = new Date(Number(value || Date.now()));
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }
+
+    function formatShortDateLabel(value) {
+        const date = new Date(Number(value || Date.now()));
+        return `${date.getMonth() + 1}/${date.getDate()}`;
+    }
+
+    function parseDateKeyToTimestamp(dateKey = '') {
+        const normalized = String(dateKey || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+            return null;
+        }
+
+        const parsed = new Date(`${normalized}T00:00:00`).getTime();
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    function computeStreakDays(dayTimestamps = []) {
+        if (!Array.isArray(dayTimestamps) || dayTimestamps.length === 0) {
+            return 0;
+        }
+
+        const daySet = new Set(dayTimestamps.map((value) => normalizeDateToDayStart(value)));
+        const oneDay = 24 * 60 * 60 * 1000;
+        let cursor = normalizeDateToDayStart(Date.now());
+        let streak = 0;
+
+        while (daySet.has(cursor)) {
+            streak += 1;
+            cursor -= oneDay;
+        }
+
+        return streak;
+    }
+
+    function buildSevenDayTrend(valueByDay = new Map()) {
+        const oneDay = 24 * 60 * 60 * 1000;
+        const start = normalizeDateToDayStart(Date.now()) - (6 * oneDay);
+
+        return Array.from({ length: 7 }, (_item, index) => {
+            const timestamp = start + (index * oneDay);
+            const value = Math.max(0, Number(valueByDay.get(timestamp) || 0));
+            return {
+                dateKey: formatDateKeyFromTimestamp(timestamp),
+                label: formatShortDateLabel(timestamp),
+                value,
+                active: value > 0,
+            };
+        });
+    }
+
+    function computeLearningMetricsFromDays(items = []) {
+        const dayValueMap = new Map();
+        const dayTimestamps = [];
+
+        (Array.isArray(items) ? items : []).forEach((item) => {
+            const timestamp = parseDateKeyToTimestamp(item?.dateKey);
+            if (!Number.isFinite(timestamp)) {
+                return;
+            }
+
+            const dayStart = normalizeDateToDayStart(timestamp);
+            const entryCount = Math.max(0, Number(item?.entryCount || 0));
+            const value = entryCount > 0 ? entryCount : 1;
+            dayTimestamps.push(dayStart);
+            dayValueMap.set(dayStart, Math.max(0, Number(dayValueMap.get(dayStart) || 0)) + value);
+        });
+
+        const uniqueDaySet = new Set(dayTimestamps.map((value) => normalizeDateToDayStart(value)));
+        const totalLearningDays = uniqueDaySet.size;
+        const streakDays = computeStreakDays([...uniqueDaySet]);
+
+        const sevenDaysAgo = normalizeDateToDayStart(Date.now()) - (6 * 24 * 60 * 60 * 1000);
+        const activeDaysLast7 = [...uniqueDaySet].filter((value) => value >= sevenDaysAgo).length;
+        const trendDays = buildSevenDayTrend(dayValueMap);
+
+        const score = Math.min(
+            980,
+            600
+                + Math.min(streakDays * 18, 180)
+                + Math.min(activeDaysLast7 * 20, 140)
+                + Math.min(totalLearningDays * 2, 60),
+        );
+
+        return {
+            score,
+            streakDays,
+            activeDaysLast7,
+            totalLearningDays,
+            trendDays,
+        };
+    }
+
+    function buildFallbackLearningMetrics() {
+        const stats = Object.values(agentOverviewStats || {});
+        const totalTopics = stats.reduce((sum, item) => sum + Number(item?.topicCount || 0), 0);
+        const totalUnread = stats.reduce((sum, item) => sum + Number(item?.unreadCount || 0), 0);
+        const estimatedActiveDays = Math.min(30, Math.max(0, totalTopics));
+        const estimatedActiveLast7 = Math.min(7, Math.ceil(totalUnread / 2) || Math.min(7, totalTopics));
+        const estimatedStreak = Math.min(21, Math.max(0, Math.floor(totalTopics / 2)));
+
+        const score = Math.min(
+            900,
+            620
+                + Math.min(estimatedStreak * 12, 120)
+                + Math.min(estimatedActiveLast7 * 18, 126)
+                + Math.min(estimatedActiveDays * 2, 54),
+        );
+
+        return {
+            score,
+            streakDays: estimatedStreak,
+            activeDaysLast7: estimatedActiveLast7,
+            totalLearningDays: estimatedActiveDays,
+            trendDays: buildSevenDayTrend(new Map(
+                buildSevenDayTrend().map((day, index, days) => {
+                    const activeIndexStart = Math.max(0, days.length - estimatedActiveLast7);
+                    const value = index >= activeIndexStart
+                        ? Math.max(1, Math.ceil((totalTopics + totalUnread) / Math.max(1, estimatedActiveLast7)))
+                        : 0;
+                    return [parseDateKeyToTimestamp(day.dateKey), value];
+                }),
+            )),
+        };
+    }
+
+    async function refreshOverviewLearningMetrics() {
+        if (typeof chatAPI.listStudyLogDays !== 'function') {
+            overviewLearningMetrics = buildFallbackLearningMetrics();
+            return overviewLearningMetrics;
+        }
+
+        try {
+            const result = await chatAPI.listStudyLogDays({
+                scope: 'global',
+                agentId: '',
+                topicId: '',
+                query: '',
+                dateKey: '',
+                notebookId: '',
+                notebookName: '',
+                limit: 365,
+            });
+
+            if (result?.success && Array.isArray(result.items) && result.items.length > 0) {
+                overviewLearningMetrics = computeLearningMetricsFromDays(result.items);
+                return overviewLearningMetrics;
+            }
+        } catch (_error) {
+            // Fallback is handled below.
+        }
+
+        overviewLearningMetrics = buildFallbackLearningMetrics();
+        return overviewLearningMetrics;
+    }
+
+    async function refreshOverviewDiaryCards() {
+        if (typeof chatAPI.listStudyDiaryWallCards !== 'function') {
+            overviewDiaryCards = [];
+            return overviewDiaryCards;
+        }
+
+        try {
+            const result = await chatAPI.listStudyDiaryWallCards({
+                scope: 'global',
+                agentId: '',
+                topicId: '',
+                query: '',
+                dateKey: '',
+                notebookId: '',
+                notebookName: '',
+                limit: 5,
+            });
+
+            if (result?.success && Array.isArray(result.items)) {
+                overviewDiaryCards = result.items;
+                return overviewDiaryCards;
+            }
+        } catch (_error) {
+            // Silently fall back to empty.
+        }
+
+        overviewDiaryCards = [];
+        return overviewDiaryCards;
+    }
+
+    function clearOverviewClockTimer() {
+        if (overviewClockTimerId == null) {
+            return;
+        }
+        clearIntervalFn(overviewClockTimerId);
+        overviewClockTimerId = null;
+    }
+
+    function disconnectOverviewSubjectRevealObserver() {
+        if (overviewSubjectRevealObserver?.disconnect) {
+            overviewSubjectRevealObserver.disconnect();
+        }
+        overviewSubjectRevealObserver = null;
+        if (overviewSubjectRevealResetTimerId != null) {
+            windowObj.clearTimeout(overviewSubjectRevealResetTimerId);
+            overviewSubjectRevealResetTimerId = null;
+        }
+    }
+
+    function bindOverviewSubjectReveal() {
+        disconnectOverviewSubjectRevealObserver();
+        const subjectSection = el.subjectOverviewGrid?.querySelector('.overview-subject-section--pending');
+        if (!subjectSection) {
+            return;
+        }
+        const restartEnterAnimation = () => {
+            subjectSection.classList.remove('is-leaving');
+            subjectSection.classList.remove('is-visible');
+            void subjectSection.offsetWidth;
+            subjectSection.classList.add('is-visible');
+        };
+        if (typeof windowObj.IntersectionObserver !== 'function') {
+            restartEnterAnimation();
+            return;
+        }
+        overviewSubjectRevealObserver = new windowObj.IntersectionObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) {
+                return;
+            }
+            if (entry.isIntersecting) {
+                if (overviewSubjectRevealResetTimerId != null) {
+                    windowObj.clearTimeout(overviewSubjectRevealResetTimerId);
+                    overviewSubjectRevealResetTimerId = null;
+                }
+                restartEnterAnimation();
+                return;
+            }
+            if (!subjectSection.classList.contains('is-visible')) {
+                return;
+            }
+            subjectSection.classList.remove('is-visible');
+            subjectSection.classList.add('is-leaving');
+            overviewSubjectRevealResetTimerId = windowObj.setTimeout(() => {
+                subjectSection.classList.remove('is-leaving');
+                overviewSubjectRevealResetTimerId = null;
+            }, 460);
+        }, {
+            root: el.workspaceOverviewPage || null,
+            threshold: 0.08,
+            rootMargin: '0px 0px -6% 0px',
+        });
+        overviewSubjectRevealObserver.observe(subjectSection);
+    }
+
+    function syncOverviewClockText() {
+        const clockTimeElement = el.subjectOverviewGrid?.querySelector('#overviewClockTime');
+        if (!clockTimeElement) {
+            return;
+        }
+        const currentTime = nowProvider();
+        clockTimeElement.textContent = formatOverviewClock(currentTime);
+        const clockDateElement = el.subjectOverviewGrid?.querySelector('#overviewClockDate');
+        if (clockDateElement) {
+            clockDateElement.textContent = formatOverviewClockDate(currentTime);
+        }
+    }
+
+    function ensureOverviewClockTimer() {
+        if (state.workspaceViewMode === 'subject') {
+            clearOverviewClockTimer();
+            return;
+        }
+
+        syncOverviewClockText();
+        if (overviewClockTimerId != null) {
+            return;
+        }
+
+        overviewClockTimerId = setIntervalFn(() => {
+            syncOverviewClockText();
+        }, 1000);
+    }
+
+    function getCurrentTopic() {
+        return state.topics.find((topic) => topic.id === state.currentTopicId) || null;
+    }
+
+    function getCurrentTopicDisplayName() {
+        return getCurrentTopic()?.name || '请选择一个话题';
+    }
+
+    function getCurrentAgentDisplayName() {
+        return state.currentSelectedItem.name || '未选择学科';
+    }
+
+    function hasCurrentAgentSelected() {
+        return Boolean(state.currentSelectedItem?.id);
+    }
+
+    function focusOverviewHighlights() {
+        const targetSection = el.subjectOverviewGrid?.querySelector('.overview-subject-section');
+        if (!targetSection) {
+            return;
+        }
+        targetSection.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+        });
+    }
+
+    function showManualNotesLibrary() {
+        state.workspaceViewMode = 'manual-notes';
+        syncWorkspaceView();
+    }
+
+    function openDiaryWall() {
+        el.openDiaryWallBtn?.click();
+    }
+
+    function continueLearningFromHome() {
+        if (!hasCurrentAgentSelected()) {
+            void createAgent();
+            return;
+        }
+        showSubjectWorkspace();
+    }
+
+    function handleHomeAction(action, payload = {}) {
+        switch (action) {
+        case 'create-subject':
+        case 'create-agent':
+            void createAgent();
+            break;
+        case 'open-agent': {
+            const agentId = String(payload.agentId || '').trim();
+            if (!agentId) {
+                break;
+            }
+            void selectAgent(agentId);
+            break;
+        }
+        case 'view-highlights':
+            focusOverviewHighlights();
+            break;
+        case 'open-subject':
+        case 'continue-learning':
+            continueLearningFromHome();
+            break;
+        case 'open-notes':
+            showManualNotesLibrary();
+            break;
+        case 'open-diary':
+            openDiaryWall();
+            break;
+        default:
+            break;
+        }
+    }
+
+    function closeTopicActionMenu() {
+        state.activeTopicMenu = null;
+        if (!el.topicActionMenu) {
+            return;
+        }
+        el.topicActionMenu.classList.add('hidden');
+        el.topicActionMenu.innerHTML = '';
+        el.topicActionMenu.style.left = '0px';
+        el.topicActionMenu.style.top = '0px';
+        el.topicActionMenu.style.visibility = '';
+    }
+
+    function ensureSubjectActionMenu() {
+        if (subjectActionMenuElement && documentObj.body.contains(subjectActionMenuElement)) {
+            return subjectActionMenuElement;
+        }
+
+        subjectActionMenuElement = documentObj.createElement('div');
+        subjectActionMenuElement.className = 'topic-action-menu subject-action-menu hidden';
+        subjectActionMenuElement.setAttribute('role', 'menu');
+        subjectActionMenuElement.setAttribute('aria-label', '学科操作');
+        documentObj.body.appendChild(subjectActionMenuElement);
+        return subjectActionMenuElement;
+    }
+
+    function closeSubjectActionMenu() {
+        activeSubjectActionMenu = null;
+        if (!subjectActionMenuElement) {
+            return;
+        }
+        subjectActionMenuElement.classList.add('hidden');
+        subjectActionMenuElement.innerHTML = '';
+        subjectActionMenuElement.style.left = '0px';
+        subjectActionMenuElement.style.top = '0px';
+        subjectActionMenuElement.style.visibility = '';
+    }
+
+    function getAgentOverviewLabel(agentId) {
+        const agent = state.agents.find((item) => item.id === agentId) || null;
+        return agent?.name || agent?.id || agentId || '未命名学科';
+    }
+
+    async function editAgentById(agentId, trigger = null) {
+        if (!agentId) {
+            return;
+        }
+
+        closeSubjectActionMenu();
+        await selectAgent(agentId, { showSubjectWorkspace: false });
+        openSubjectSettingsPanel(trigger);
+    }
+
+    function renderSubjectActionMenu() {
+        const menu = ensureSubjectActionMenu();
+        if (!activeSubjectActionMenu?.agentId || !activeSubjectActionMenu?.anchorRect) {
+            closeSubjectActionMenu();
+            return;
+        }
+
+        const agentId = activeSubjectActionMenu.agentId;
+        const agentName = activeSubjectActionMenu.agentName || getAgentOverviewLabel(agentId);
+        const actions = [
+            { key: 'manage', label: '学科管理', icon: 'tune' },
+            { key: 'delete', label: '删除', icon: 'delete', danger: true },
+        ];
+
+        menu.innerHTML = actions.map((action) => `
+            <button
+                type="button"
+                class="topic-action-menu__item ${action.danger ? 'topic-action-menu__item--danger' : ''}"
+                data-subject-action="${escapeHtml(action.key)}"
+                role="menuitem"
+            >
+                <span class="material-symbols-outlined">${escapeHtml(action.icon)}</span>
+                <span>${escapeHtml(action.label)}</span>
+            </button>
+        `).join('');
+
+        menu.classList.remove('hidden');
+        menu.style.visibility = 'hidden';
+        positionFloatingElement(menu, activeSubjectActionMenu.anchorRect, 'right', windowObj);
+        menu.style.visibility = 'visible';
+
+        menu.querySelectorAll('[data-subject-action]').forEach((button) => {
+            button.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const action = button.dataset.subjectAction;
+                if (action === 'manage') {
+                    await editAgentById(agentId, button);
+                } else if (action === 'delete') {
+                    closeSubjectActionMenu();
+                    await deleteAgentById(agentId, { agentName });
+                }
+            });
+        });
+    }
+
+    function openSubjectActionMenu(event, button) {
+        event.preventDefault();
+        event.stopPropagation();
+        const agentId = String(button?.dataset?.agentId || '').trim();
+        if (!agentId) {
+            return;
+        }
+
+        closeTopicActionMenu();
+        activeSubjectActionMenu = {
+            agentId,
+            agentName: getAgentOverviewLabel(agentId),
+            trigger: button,
+            anchorRect: {
+                left: event.clientX,
+                right: event.clientX,
+                top: event.clientY,
+                bottom: event.clientY,
+            },
+        };
+        renderSubjectActionMenu();
+    }
+
+    function renderTopicActionMenu() {
+        if (!el.topicActionMenu || !state.activeTopicMenu?.topic || !state.activeTopicMenu?.anchorRect) {
+            closeTopicActionMenu();
+            return;
+        }
+
+        const topic = state.activeTopicMenu.topic;
+        const actions = [
+            { key: 'rename', label: '重命名', icon: 'edit' },
+            { key: 'toggle-unread', label: topic.unread ? '标为已读' : '标为未读', icon: topic.unread ? 'drafts' : 'mark_chat_unread' },
+            { key: 'toggle-lock', label: topic.locked === false ? '锁定' : '解锁', icon: topic.locked === false ? 'lock_open' : 'lock' },
+            { key: 'delete', label: '删除', icon: 'delete', danger: true },
+        ];
+
+        el.topicActionMenu.innerHTML = actions.map((action) => `
+            <button
+                type="button"
+                class="topic-action-menu__item ${action.danger ? 'topic-action-menu__item--danger' : ''}"
+                data-topic-action="${escapeHtml(action.key)}"
+            >
+                <span class="material-symbols-outlined">${escapeHtml(action.icon)}</span>
+                <span>${escapeHtml(action.label)}</span>
+            </button>
+        `).join('');
+
+        el.topicActionMenu.classList.remove('hidden');
+        el.topicActionMenu.style.visibility = 'hidden';
+        positionFloatingElement(el.topicActionMenu, state.activeTopicMenu.anchorRect, 'left', windowObj);
+        el.topicActionMenu.style.visibility = 'visible';
+
+        el.topicActionMenu.querySelectorAll('[data-topic-action]').forEach((button) => {
+            button.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const action = button.dataset.topicAction;
+                if (action === 'rename') {
+                    await renameTopic(topic);
+                } else if (action === 'toggle-unread') {
+                    await setTopicUnreadState(topic, !topic.unread);
+                } else if (action === 'toggle-lock') {
+                    await toggleTopicLockState(topic);
+                } else if (action === 'delete') {
+                    await deleteTopicFromList(topic);
+                }
+                closeTopicActionMenu();
+            });
+        });
+    }
+
+    function toggleTopicActionMenu(topic, anchorElement) {
+        if (!topic || !anchorElement) {
+            return;
+        }
+
+        if (state.activeTopicMenu?.topicId === topic.id) {
+            closeTopicActionMenu();
+            return;
+        }
+
+        closeSourceFileActionMenu();
+        hideSourceFileTooltip();
+        state.activeTopicMenu = {
+            topicId: topic.id,
+            topic,
+            anchorRect: anchorElement.getBoundingClientRect(),
+        };
+        renderTopicActionMenu();
+    }
+
+    function syncWorkspaceContext() {
+        const agentName = getCurrentAgentDisplayName();
+        const topicName = getCurrentTopicDisplayName();
+
+        if (el.titlebarCurrentAgent) {
+            el.titlebarCurrentAgent.textContent = agentName;
+        }
+        if (el.titlebarCurrentTopic) {
+            el.titlebarCurrentTopic.textContent = topicName;
+        }
+        if (el.workspaceCurrentAgent) {
+            el.workspaceCurrentAgent.textContent = agentName;
+        }
+        if (el.workspaceCurrentTopic) {
+            el.workspaceCurrentTopic.textContent = topicName;
+        }
+        if (el.currentChatTopicName) {
+            el.currentChatTopicName.textContent = topicName;
+        }
+        if (el.currentChatAgentName) {
+            el.currentChatAgentName.textContent = `当前学科：${agentName}`;
+        }
+        if (el.currentAgentSettingsBtn) {
+            const hasAgent = Boolean(state.currentSelectedItem.id);
+            el.currentAgentSettingsBtn.disabled = !hasAgent;
+            el.currentAgentSettingsBtn.classList.toggle('is-disabled', !hasAgent);
+            el.currentAgentSettingsBtn.title = hasAgent ? `管理学科：${agentName}` : '请选择学科后管理';
+        }
+    }
+
+    function filterAgents() {
+        const keyword = el.agentSearchInput?.value.trim().toLowerCase() || '';
+        Array.from(el.agentList?.children || []).forEach((item) => {
+            item.hidden = !item.dataset.searchText.includes(keyword);
+        });
+    }
+
+    function showWorkspaceOverview() {
+        state.workspaceViewMode = 'overview';
+        syncWorkspaceView();
+    }
+
+    function showSubjectWorkspace() {
+        state.workspaceViewMode = 'subject';
+        syncWorkspaceView();
+    }
+
+    function showManualNotesLibrary() {
+        state.workspaceViewMode = 'manual-notes';
+        syncWorkspaceView();
+    }
+
+    function syncWorkspaceView() {
+        const mode = state.workspaceViewMode || 'overview';
+        const isOverview = mode === 'overview';
+        const isSubject = mode === 'subject';
+        const isManualNotes = mode === 'manual-notes';
+
+        el.workspaceOverviewPage?.classList.toggle('hidden', !isOverview);
+        el.workspaceSubjectPage?.classList.toggle('hidden', !isSubject);
+        el.manualNotesLibraryPage?.classList.toggle('hidden', !isManualNotes);
+        el.settingsModal?.classList.add('hidden');
+        el.settingsModal?.classList.remove('settings-page--open');
+        el.workspaceBackToOverviewBtn?.classList.toggle('titlebar__tab--active', isOverview);
+        el.workspaceOpenSubjectBtn?.classList.toggle('titlebar__tab--active', isSubject);
+        el.manualNotesLibraryBtn?.classList.toggle('titlebar__tab--active', isManualNotes);
+        documentObj.body?.classList?.toggle('workspace-view-overview', isOverview);
+        documentObj.body?.classList?.toggle('workspace-view-subject', isSubject);
+        documentObj.body?.classList?.toggle('workspace-view-manual-notes', isManualNotes);
+        documentObj.body?.classList?.remove('workspace-view-settings');
+        documentObj.body?.classList?.remove('settings-page-open');
+        if (!isManualNotes) {
+            store.patchState('notes', (current) => ({
+                ...current,
+                manualNotesLibraryOpen: false,
+            }));
+        }
+        if (isOverview) {
+            ensureOverviewClockTimer();
+        } else {
+            clearOverviewClockTimer();
+        }
+        syncMobileWorkspaceLayout();
+        if (isSubject) {
+            refreshWorkspaceLayout({
+                frames: 2,
+                resetDesktopLayout: true,
+            });
+        }
+    }
+
+    async function refreshAgentOverviewStats(unreadCounts = {}) {
+        const agents = Array.isArray(state.agents) ? state.agents : [];
+        const overviewEntries = await Promise.all(agents.map(async (agent) => {
+            const topics = await chatAPI.getAgentTopics(agent.id).catch(() => []);
+            const normalizedTopics = Array.isArray(topics) ? topics.map(normalizeTopic) : [];
+            return [
+                agent.id,
+                {
+                    topicCount: normalizedTopics.length,
+                    unreadCount: Number(unreadCounts[agent.id] || 0),
+                    lastTopicName: normalizedTopics[0]?.name || '',
+                    lastTopicCreatedAt: Number(normalizedTopics[0]?.createdAt || 0),
+                },
+            ];
+        }));
+
+        agentOverviewStats = Object.fromEntries(overviewEntries);
+        return agentOverviewStats;
+    }
+
+    function getFilteredOverviewAgents() {
+        const search = String(overviewSubjectBrowserState.search || '').trim().toLowerCase();
+        const selectedAgentId = state.currentSelectedItem.id;
+
+        const normalized = (Array.isArray(state.agents) ? state.agents : []).map((agent, index) => ({
+            agent,
+            stats: agentOverviewStats[agent.id] || {},
+            index,
+        })).filter(({ agent, stats }) => {
+            if (overviewSubjectBrowserState.filterMode === 'current' && agent.id !== selectedAgentId) {
+                return false;
+            }
+            if (overviewSubjectBrowserState.filterMode === 'pending' && Number(stats.unreadCount || 0) <= 0) {
+                return false;
+            }
+            if (!search) {
+                return true;
+            }
+            const haystack = [
+                agent.name,
+                agent.id,
+                stats.lastTopicName,
+            ].join(' ').toLowerCase();
+            return haystack.includes(search);
+        });
+
+        normalized.sort((left, right) => {
+            switch (overviewSubjectBrowserState.sortMode) {
+            case 'name':
+                return String(left.agent.name || left.agent.id || '').localeCompare(String(right.agent.name || right.agent.id || ''), 'zh-CN');
+            case 'topics':
+                return Number(right.stats.topicCount || 0) - Number(left.stats.topicCount || 0)
+                    || left.index - right.index;
+            case 'recent':
+            default:
+                return left.index - right.index;
+            }
+        });
+
+        return normalized.map(({ agent }) => agent);
+    }
+
+    function renderOverviewSubjectCollection() {
+        const host = el.subjectOverviewGrid?.querySelector('#subjectOverviewCollectionHost');
+        if (!host) {
+            return;
+        }
+
+        const agents = getFilteredOverviewAgents();
+        host.innerHTML = buildOverviewCollectionMarkup({
+            agents,
+            statsByAgent: agentOverviewStats,
+            selectedAgentId: state.currentSelectedItem.id,
+        });
+
+        const collection = host.querySelector('[data-subject-collection]');
+        collection?.classList.toggle('is-empty', agents.length === 0);
+        if (!agents.length) {
+            host.innerHTML = `
+                <div class="subject-overview-browser-empty">
+                    <span class="material-symbols-outlined" aria-hidden="true">search_off</span>
+                    <strong>没有匹配的学科</strong>
+                    <p>试试切换筛选条件，或者换个关键词搜索。</p>
+                </div>
+            `;
+            return;
+        }
+
+        host.querySelectorAll('[data-subject-card]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const { agentId } = button.dataset;
+                if (!agentId) {
+                    return;
+                }
+                closeSubjectActionMenu();
+                void selectAgent(agentId);
+            });
+            button.addEventListener('contextmenu', (event) => {
+                openSubjectActionMenu(event, button);
+            });
+        });
+        host.querySelectorAll('[data-create-subject-card]').forEach((button) => {
+            button.addEventListener('click', () => {
+                void createAgent();
+            });
+        });
+    }
+
+    function syncOverviewSubjectBrowserUi() {
+        const root = el.subjectOverviewGrid;
+        if (!root) {
+            return;
+        }
+
+        root.querySelectorAll('[data-subject-filter]').forEach((button) => {
+            const isActive = button.dataset.subjectFilter === overviewSubjectBrowserState.filterMode;
+            button.classList.toggle('is-active', isActive);
+            button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+        });
+
+        const sortButton = root.querySelector('[data-subject-sort]');
+        const sortLabel = root.querySelector('[data-subject-sort-label]');
+        if (sortButton) {
+            sortButton.dataset.subjectSort = overviewSubjectBrowserState.sortMode;
+        }
+        if (sortLabel) {
+            const labels = {
+                recent: '最近',
+                name: '名称',
+                topics: '话题数',
+            };
+            sortLabel.textContent = labels[overviewSubjectBrowserState.sortMode] || '最近';
+        }
+    }
+
+    function bindOverviewSubjectBrowser() {
+        const root = el.subjectOverviewGrid;
+        if (!root) {
+            return;
+        }
+
+        root.querySelectorAll('[data-subject-filter]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const nextFilter = button.dataset.subjectFilter;
+                if (!nextFilter || nextFilter === overviewSubjectBrowserState.filterMode) {
+                    return;
+                }
+                overviewSubjectBrowserState.filterMode = nextFilter;
+                syncOverviewSubjectBrowserUi();
+                renderOverviewSubjectCollection();
+            });
+        });
+
+        const sortButton = root.querySelector('[data-subject-sort]');
+        sortButton?.addEventListener('click', () => {
+            const order = ['recent', 'name', 'topics'];
+            const currentIndex = order.indexOf(overviewSubjectBrowserState.sortMode);
+            overviewSubjectBrowserState.sortMode = order[(currentIndex + 1) % order.length];
+            syncOverviewSubjectBrowserUi();
+            renderOverviewSubjectCollection();
+        });
+
+        const createButton = root.querySelector('#subjectOverviewCreateCard');
+        createButton?.addEventListener('click', () => {
+            void createAgent();
+        });
+    }
+
+    function renderSubjectOverview() {
+        if (!el.subjectOverviewGrid) {
+            return;
+        }
+        closeSubjectActionMenu();
+
+        const markup = buildOverviewMarkup({
+            agents: state.agents,
+            statsByAgent: agentOverviewStats,
+            selectedAgentId: state.currentSelectedItem.id,
+            selectedAgentName: getCurrentAgentDisplayName(),
+            currentTopicName: getCurrentTopicDisplayName(),
+            learningMetrics: overviewLearningMetrics,
+            diaryCards: overviewDiaryCards,
+        });
+
+        if (el.subjectOverviewHeadline) {
+            el.subjectOverviewHeadline.textContent = markup.headline;
+        }
+        if (el.subjectOverviewSummary) {
+            el.subjectOverviewSummary.textContent = markup.summary;
+        }
+        if (el.workspaceOverviewHighlights) {
+            el.workspaceOverviewHighlights.innerHTML = markup.highlightsMarkup || '';
+        }
+
+        el.subjectOverviewGrid.innerHTML = `${markup.heroMarkup || ''}${markup.clockMarkup || ''}${markup.statsRowMarkup || ''}${markup.gridMarkup || ''}`;
+        el.workspaceOverviewHighlights?.querySelectorAll('[data-home-action]').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                const { homeAction } = button.dataset;
+                if (!homeAction) {
+                    return;
+                }
+                handleHomeAction(homeAction, button.dataset);
+            });
+        });
+        syncOverviewSubjectBrowserUi();
+        bindOverviewSubjectBrowser();
+        renderOverviewSubjectCollection();
+        el.subjectOverviewGrid.querySelectorAll('[data-delete-subject-card]').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const { agentId, agentName } = button.dataset;
+                if (!agentId) {
+                    return;
+                }
+                void deleteAgentById(agentId, { agentName });
+            });
+        });
+
+        el.subjectOverviewGrid.querySelectorAll('[data-home-action]').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                const { homeAction } = button.dataset;
+                if (!homeAction) {
+                    return;
+                }
+                handleHomeAction(homeAction, button.dataset);
+            });
+        });
+
+        bindOverviewSubjectReveal();
+        ensureOverviewClockTimer();
+    }
+
+    function renderAgentList(unreadCounts = {}) {
+        if (!el.agentList) {
+            return;
+        }
+
+        el.agentList.innerHTML = '';
+        if (state.agents.length === 0) {
+            el.agentList.innerHTML = `
+                <li class="empty-list-state">
+                    <strong>暂无学科入口</strong>
+                    <span>使用“新建学科”创建一个学习入口，或在首次启动时导入已有数据。</span>
+                </li>
+            `;
+            return;
+        }
+
+        state.agents.forEach((agent) => {
+            const li = documentObj.createElement('li');
+            const unreadCount = Number(unreadCounts[agent.id] || 0);
+            const isActive = agent.id === state.currentSelectedItem.id;
+            const statusLabel = unreadCount > 0 ? `${unreadCount} 个待处理话题` : (isActive ? '当前学科入口' : '已整理完成');
+            li.className = 'list-item list-item--agent';
+            li.dataset.agentId = agent.id || '';
+            li.dataset.searchText = `${agent.name || ''} ${agent.id || ''}`.toLowerCase();
+            li.classList.toggle('active', isActive);
+            li.innerHTML = `
+              <div class="list-item__media">
+                <img class="avatar" src="${agent.avatarUrl || defaultAgentAvatar}" alt="${agent.name || agent.id}" />
+                <span class="list-item__media-glow"></span>
+              </div>
+              <div class="list-item__body">
+                  <div class="list-item__title-row">
+                      <span class="list-item__title">${agent.name || agent.id}</span>
+                      ${isActive ? '<span class="list-pill list-pill--active">当前</span>' : ''}
+                  </div>
+                  <span class="list-item__meta">${statusLabel}</span>
+                  <span class="list-item__submeta">${agent.id}</span>
+              </div>
+              <span class="badge ${unreadCount > 0 ? 'badge--active' : ''}">${unreadCount > 0 ? unreadCount : ''}</span>
+            `;
+            li.addEventListener('click', () => {
+                void selectAgent(agent.id);
+            });
+            el.agentList.appendChild(li);
+        });
+
+        filterAgents();
+    }
+
+    async function loadAgents() {
+        const agents = await chatAPI.getAgents();
+        if (agents?.error) {
+            console.error('[UniStudyRenderer] getAgents failed:', agents.error);
+            ui.showToastNotification(`加载智能体失败：${agents.error}`, 'error');
+            state.agents = [];
+            agentOverviewStats = {};
+            renderAgentList({});
+            renderSubjectOverview();
+            return state.agents;
+        }
+
+        state.agents = Array.isArray(agents) ? agents : [];
+        const unreadResult = await chatAPI.getUnreadTopicCounts().catch(() => ({ counts: {} }));
+        await refreshAgentOverviewStats(unreadResult?.counts || {});
+        await refreshOverviewLearningMetrics();
+        await refreshOverviewDiaryCards();
+        renderAgentList(unreadResult?.counts || {});
+        renderSubjectOverview();
+        return state.agents;
+    }
+
+    function filterTopics() {
+        const keyword = el.topicSearchInput?.value.trim().toLowerCase() || '';
+        Array.from(el.topicList?.children || []).forEach((item) => {
+            item.hidden = !item.dataset.searchText.includes(keyword);
+        });
+    }
+
+    function renderTopics() {
+        if (!el.topicList) {
+            return;
+        }
+
+        el.topicList.innerHTML = '';
+
+        if (state.topics.length === 0) {
+            const emptyItem = documentObj.createElement('li');
+            emptyItem.className = 'empty-list-state empty-list-state--topics';
+            emptyItem.innerHTML = '<span>暂无话题</span>';
+            el.topicList.appendChild(emptyItem);
+            return;
+        }
+
+        state.topics.forEach((topic) => {
+            const li = documentObj.createElement('li');
+            const isActive = topic.id === state.currentTopicId;
+            const rawTopicTitle = topic.name || topic.id;
+            const displayTopicTitle = formatTopicDisplayTitle(rawTopicTitle);
+            li.className = 'list-item topic-item topic-item--compact';
+            li.dataset.topicId = topic.id || '';
+            li.dataset.agentId = state.currentSelectedItem.id || '';
+            li.dataset.searchText = `${displayTopicTitle} ${rawTopicTitle || ''} ${new Date(topic.createdAt || Date.now()).toLocaleString()}`.toLowerCase();
+            li.classList.toggle('active', isActive);
+
+            li.innerHTML = `
+                <div class="topic-item__body">
+                    <strong title="${escapeHtml(displayTopicTitle)}">${escapeHtml(displayTopicTitle || rawTopicTitle)}</strong>
+                </div>
+                <div class="topic-item__actions">
+                    <button
+                        type="button"
+                        class="ghost-button icon-btn topic-item__menu-btn"
+                        data-topic-menu-button
+                        title="更多操作"
+                        aria-label="更多操作"
+                    >
+                        <span class="material-symbols-outlined">more_horiz</span>
+                    </button>
+                </div>
+            `;
+
+            li.addEventListener('click', async (event) => {
+                const target = event.target instanceof Element ? event.target : null;
+                const actionButton = target?.closest?.('[data-topic-menu-button]');
+                if (actionButton) {
+                    event.stopPropagation();
+                    toggleTopicActionMenu(topic, actionButton);
+                    return;
+                }
+
+                await selectTopic(topic.id);
+            });
+
+            li.addEventListener('dblclick', () => {
+                void renameTopic(topic);
+            });
+            el.topicList.appendChild(li);
+        });
+
+        filterTopics();
+    }
+
+    async function loadTopics(options = {}) {
+        if (!state.currentSelectedItem.id) {
+            state.topics = [];
+            state.currentTopicId = null;
+            clearTopicKnowledgeBaseDocuments();
+            syncWorkspaceContext();
+            renderTopics();
+            renderTopicKnowledgeBaseFiles();
+            syncComposerAvailability();
+            return state.topics;
+        }
+
+        const topics = await chatAPI.getAgentTopics(state.currentSelectedItem.id);
+        state.topics = Array.isArray(topics) ? topics.map(normalizeTopic) : [];
+        const preferredTopicId = options.preferredTopicId || null;
+        if (preferredTopicId && state.topics.some((topic) => topic.id === preferredTopicId)) {
+            state.currentTopicId = preferredTopicId;
+        } else if (!state.topics.some((topic) => topic.id === state.currentTopicId)) {
+            state.currentTopicId = null;
+        }
+
+        if (!state.currentTopicId && state.topics.length > 0) {
+            state.currentTopicId = state.topics[0].id;
+        }
+
+        syncWorkspaceContext();
+        renderTopics();
+        syncCurrentTopicKnowledgeBaseControls();
+        syncComposerAvailability();
+        return state.topics;
+    }
+
+    async function renameTopic(topic) {
+        const nextName = await ui.showPromptDialog({
+            title: '重命名话题',
+            message: '更新话题标题。',
+            placeholder: '话题名称',
+            defaultValue: topic.name || topic.id,
+            confirmText: '保存',
+            cancelText: '取消',
+        });
+        if (!nextName) {
+            return;
+        }
+
+        const result = await chatAPI.saveAgentTopicTitle(state.currentSelectedItem.id, topic.id, nextName.trim());
+        if (result?.error) {
+            ui.showToastNotification(`重命名话题失败：${result.error}`, 'error');
+            return;
+        }
+
+        updateTopicInSession(topic.id, {
+            name: nextName.trim(),
+        });
+        renderTopics();
+    }
+
+    async function setTopicUnreadState(topic, unread) {
+        const result = await chatAPI.setTopicUnread(state.currentSelectedItem.id, topic.id, unread);
+        if (!result?.success) {
+            ui.showToastNotification(`更新话题状态失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        updateTopicInSession(topic.id, {
+            unread,
+        });
+        renderTopics();
+        await loadAgents();
+    }
+
+    async function toggleTopicLockState(topic) {
+        const result = await chatAPI.toggleTopicLock(state.currentSelectedItem.id, topic.id);
+        if (!result?.success) {
+            ui.showToastNotification(`更新锁定状态失败：${result?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        updateTopicInSession(topic.id, {
+            locked: result.locked,
+        });
+        renderTopics();
+    }
+
+    function buildHistoryFilePath() {
+        const base = (state.currentSelectedItem?.config?.agentDataPath || '').replace(/[\\/]+$/, '');
+        if (!base || !state.currentTopicId) {
+            return null;
+        }
+        return `${base}\\topics\\${state.currentTopicId}\\history.json`;
+    }
+
+    async function stopHistoryWatcher() {
+        if (typeof chatAPI.watcherStop !== 'function') {
+            return;
+        }
+
+        try {
+            await chatAPI.watcherStop();
+        } catch (error) {
+            console.warn('[UniStudyRenderer] watcherStop failed:', error);
+        }
+    }
+
+    function isActiveTopicSelection(agentId, topicId) {
+        return state.currentSelectedItem?.id === agentId && state.currentTopicId === topicId;
+    }
+
+    function messageDisplaySignature(message = {}) {
+        return JSON.stringify({
+            role: message.role || '',
+            name: message.name || '',
+            avatarUrl: message.avatarUrl || '',
+            avatarColor: message.avatarColor || '',
+            content: message.content ?? '',
+            reasoning_content: message.reasoning_content ?? '',
+            attachments: message.attachments || [],
+            kbContextRefs: message.kbContextRefs || [],
+            studyMemoryRefs: message.studyMemoryRefs || [],
+            followUps: message.followUps || [],
+            citations: message.citations || [],
+            finishReason: message.finishReason || '',
+            fallbackMeta: message.fallbackMeta || null,
+        });
+    }
+
+    function historyHasStableMessageIds(history) {
+        return Array.isArray(history)
+            && history.every((message) => message && typeof message.id === 'string' && message.id.trim());
+    }
+
+    async function reloadCurrentTopicFromWatcher(reason = 'fallback') {
+        console.warn(`[UniStudyRenderer] Falling back to full topic reload after watcher update: ${reason}`);
+        if (state.currentSelectedItem?.id && state.currentTopicId) {
+            await selectTopic(state.currentTopicId, { fromWatcher: true });
+            return { applied: false, fallback: true, reason };
+        }
+
+        await renderCurrentHistory();
+        return { applied: false, fallback: true, reason };
+    }
+
+    function idsEqual(left = [], right = []) {
+        return left.length === right.length && left.every((id, index) => id === right[index]);
+    }
+
+    function analyzeIncrementalHistoryDiff(oldHistory, newHistory, activeStreamingMessageId) {
+        const oldIds = oldHistory.map((message) => message.id);
+        const newIds = newHistory.map((message) => message.id);
+        const oldIdSet = new Set(oldIds);
+        const newIdSet = new Set(newIds);
+        const oldIdsWithoutActive = oldIds.filter((id) => id !== activeStreamingMessageId);
+        const newIdsWithoutActive = newIds.filter((id) => id !== activeStreamingMessageId);
+        const retainedOldIds = oldIdsWithoutActive.filter((id) => newIdSet.has(id));
+        const newExistingIds = newIdsWithoutActive.filter((id) => oldIdSet.has(id));
+        const existingOrderChanged = !idsEqual(retainedOldIds, newExistingIds);
+
+        let sawAddedMessage = false;
+        let addedBeforeExistingMessage = false;
+        for (const id of newIdsWithoutActive) {
+            if (!oldIdSet.has(id)) {
+                sawAddedMessage = true;
+                continue;
+            }
+            if (sawAddedMessage) {
+                addedBeforeExistingMessage = true;
+                break;
+            }
+        }
+
+        const requiresRenderedReorder = existingOrderChanged || addedBeforeExistingMessage;
+        if (activeStreamingMessageId && requiresRenderedReorder) {
+            return { canApply: false, reason: 'active-streaming-order-change' };
+        }
+
+        if (requiresRenderedReorder && typeof messageRendererApi?.reorderRenderedMessagesById !== 'function') {
+            return { canApply: false, reason: 'missing-rendered-reorder-api' };
+        }
+
+        if (messageRendererApi?.isHistoryWindowActive?.() === true
+            && typeof messageRendererApi?.getRenderedMessageIds !== 'function') {
+            return { canApply: false, reason: 'missing-rendered-window-api' };
+        }
+
+        return {
+            canApply: true,
+            requiresRenderedReorder,
+        };
+    }
+
+    function runTopicBackgroundTask(label, task) {
+        Promise.resolve()
+            .then(task)
+            .catch((error) => {
+                console.warn(`[UniStudyRenderer] ${label} failed:`, error);
+            });
+    }
+
+    async function refreshTopicSecondaryPanels(agentId, topicId) {
+        if (!isActiveTopicSelection(agentId, topicId)) {
+            return;
+        }
+
+        await ensureTopicSource({ silent: true });
+        if (!isActiveTopicSelection(agentId, topicId)) {
+            return;
+        }
+
+        syncCurrentTopicKnowledgeBaseControls();
+        await Promise.all([
+            loadCurrentTopicKnowledgeBaseDocuments({ silent: true }),
+            loadTopicNotes(),
+            refreshLogs(),
+        ]);
+    }
+
+    async function persistTopicSelectionSideEffects(agentId, topicId) {
+        if (!isActiveTopicSelection(agentId, topicId)) {
+            return;
+        }
+
+        const sideEffects = [];
+        if (typeof chatAPI.setTopicUnread === 'function') {
+            sideEffects.push(chatAPI.setTopicUnread(agentId, topicId, false));
+        }
+        if (typeof chatAPI.saveSettings === 'function') {
+            sideEffects.push(chatAPI.saveSettings({
+                lastOpenItemId: agentId,
+                lastOpenItemType: 'agent',
+                lastOpenTopicId: topicId,
+            }));
+        }
+
+        await Promise.allSettled(sideEffects);
+
+        if (isActiveTopicSelection(agentId, topicId)) {
+            await loadAgents();
+        }
+    }
+
+    async function syncCurrentTopicHistoryFromFile(payload = {}) {
+        const agentId = payload?.agentId;
+        const topicId = payload?.topicId;
+
+        if (!isActiveTopicSelection(agentId, topicId)) {
+            return { applied: false, skipped: true, reason: 'payload-mismatch' };
+        }
+
+        if (documentObj.querySelector?.('.message-item-editing')) {
+            return { applied: false, skipped: true, reason: 'editing' };
+        }
+
+        let persistedHistory;
+        try {
+            persistedHistory = await chatAPI.getChatHistory(agentId, topicId);
+        } catch (error) {
+            console.warn('[UniStudyRenderer] Failed to read updated history for diff sync:', error);
+            return reloadCurrentTopicFromWatcher('history-read-failed');
+        }
+
+        if (!Array.isArray(persistedHistory)) {
+            return reloadCurrentTopicFromWatcher('history-not-array');
+        }
+
+        const nextHistory = normalizeHistory(persistedHistory);
+        if (!historyHasStableMessageIds(nextHistory)) {
+            return reloadCurrentTopicFromWatcher('missing-message-id');
+        }
+
+        const currentHistory = Array.isArray(state.currentChatHistory)
+            ? [...state.currentChatHistory]
+            : [];
+
+        if (!historyHasStableMessageIds(currentHistory)) {
+            return reloadCurrentTopicFromWatcher('current-history-missing-message-id');
+        }
+
+        const activeStreamingMessageId = messageRendererApi?.getActiveStreamingMessageId?.() || null;
+        const diffSafety = analyzeIncrementalHistoryDiff(currentHistory, nextHistory, activeStreamingMessageId);
+        if (!diffSafety.canApply) {
+            return reloadCurrentTopicFromWatcher(diffSafety.reason || 'complex-history-order-change');
+        }
+
+        const oldById = new Map(currentHistory.map((message) => [message.id, message]));
+        const nextById = new Map(nextHistory.map((message) => [message.id, message]));
+        const activeStreamingMessage = activeStreamingMessageId ? oldById.get(activeStreamingMessageId) : null;
+        const mergedHistory = nextHistory.map((message) => (
+            message.id === activeStreamingMessageId && activeStreamingMessage
+                ? activeStreamingMessage
+                : message
+        ));
+
+        if (activeStreamingMessage && !nextById.has(activeStreamingMessageId)) {
+            mergedHistory.push(activeStreamingMessage);
+        }
+
+        state.currentChatHistory = mergedHistory;
+
+        const historyWindowSnapshot = typeof messageRendererApi?.getHistoryWindowSnapshot === 'function'
+            ? messageRendererApi.getHistoryWindowSnapshot()
+            : null;
+        const isWindowedHistory = historyWindowSnapshot?.active === true
+            || messageRendererApi?.isHistoryWindowActive?.() === true;
+        const renderedIds = new Set(
+            typeof messageRendererApi?.getRenderedMessageIds === 'function'
+                ? messageRendererApi.getRenderedMessageIds()
+                : []
+        );
+        const renderedStartIndex = Number.isFinite(historyWindowSnapshot?.renderedStartIndex)
+            ? historyWindowSnapshot.renderedStartIndex
+            : 0;
+        const shouldTouchExistingMessageDom = (messageId) => (
+            !isWindowedHistory || renderedIds.has(messageId)
+        );
+        const shouldRenderNewMessageDom = (message) => {
+            if (!isWindowedHistory || renderedIds.has(message.id)) {
+                return true;
+            }
+
+            const nextIndex = nextHistory.findIndex((candidate) => candidate.id === message.id);
+            return nextIndex >= renderedStartIndex;
+        };
+
+        const removedIds = [];
+        const updatedIds = [];
+        const addedIds = [];
+        const memoryOnlyIds = [];
+
+        for (const oldMessage of currentHistory) {
+            if (oldMessage.id === activeStreamingMessageId) {
+                continue;
+            }
+            if (!nextById.has(oldMessage.id)) {
+                removedIds.push(oldMessage.id);
+                if (shouldTouchExistingMessageDom(oldMessage.id)) {
+                    messageRendererApi?.removeMessageById?.(oldMessage.id, false);
+                    renderedIds.delete(oldMessage.id);
+                } else {
+                    memoryOnlyIds.push(oldMessage.id);
+                }
+            }
+        }
+
+        for (const newMessage of nextHistory) {
+            if (newMessage.id === activeStreamingMessageId) {
+                continue;
+            }
+
+            const oldMessage = oldById.get(newMessage.id);
+            if (!oldMessage) {
+                addedIds.push(newMessage.id);
+                if (shouldRenderNewMessageDom(newMessage)) {
+                    await messageRendererApi?.renderMessage?.(newMessage, true);
+                    renderedIds.add(newMessage.id);
+                } else {
+                    memoryOnlyIds.push(newMessage.id);
+                }
+                continue;
+            }
+
+            if (messageDisplaySignature(oldMessage) !== messageDisplaySignature(newMessage)) {
+                updatedIds.push(newMessage.id);
+                if (shouldTouchExistingMessageDom(newMessage.id)) {
+                    messageRendererApi?.updateMessageContent?.(newMessage.id, newMessage.content);
+                } else {
+                    memoryOnlyIds.push(newMessage.id);
+                }
+            }
+        }
+
+        const reorderedIds = diffSafety.requiresRenderedReorder
+            ? (messageRendererApi?.reorderRenderedMessagesById?.(mergedHistory.map((message) => message.id)) || [])
+            : [];
+        messageRendererApi?.syncHistoryWindowHistory?.(mergedHistory);
+        state.currentChatHistory = mergedHistory;
+
+        return {
+            applied: true,
+            removedIds,
+            updatedIds,
+            addedIds,
+            memoryOnlyIds,
+            reorderedIds,
+            skippedActiveStreamingMessageId: activeStreamingMessageId || null,
+        };
+    }
+
+    async function refreshAgentSecondaryPanels(agentId) {
+        if (state.currentSelectedItem?.id !== agentId) {
+            return;
+        }
+
+        await Promise.all([
+            loadAgentNotes(),
+            loadAgents(),
+        ]);
+    }
+
+    async function clearCurrentConversationView() {
+        closeTopicActionMenu();
+        await stopHistoryWatcher();
+        state.currentTopicId = null;
+        state.currentChatHistory = [];
+        clearTopicKnowledgeBaseDocuments();
+        resetNotesState({
+            clearTopicNotes: true,
+            clearSelection: true,
+            clearActiveNote: true,
+            closeDetailView: true,
+            clearFlashcards: true,
+        });
+        resetComposerState({
+            clearAttachments: true,
+            clearSelectionContext: true,
+        });
+        setLeftSidebarMode('source-list');
+        setLeftReaderTab('guide');
+        syncWorkspaceContext();
+        renderTopics();
+        syncCurrentTopicKnowledgeBaseControls();
+        renderTopicKnowledgeBaseFiles();
+        await renderCurrentHistory();
+        await refreshLogs();
+    }
+
+    async function deleteTopicFromList(topic) {
+        closeTopicActionMenu();
+        const label = topic.name || topic.id;
+        const confirmed = await ui.showConfirmDialog(`确定删除话题 "${label}" 吗？`, '删除话题', '删除', '取消', true);
+        if (!confirmed) {
+            return;
+        }
+
+        if (state.currentTopicId === topic.id) {
+            await stopHistoryWatcher();
+        }
+
+        const result = await chatAPI.deleteTopic(state.currentSelectedItem.id, topic.id);
+        if (result?.error) {
+            ui.showToastNotification(`删除话题失败：${result.error}`, 'error');
+            return;
+        }
+        if (result?.warning) {
+            ui.showToastNotification(`话题已删除，但清理时出现问题：${result.warning}`, 'warning', 5000);
+        }
+
+        if (state.currentTopicId === topic.id) {
+            state.currentTopicId = null;
+        }
+
+        await loadTopics();
+        await loadAgents();
+
+        if (state.topics.length > 0) {
+            await selectTopic(state.currentTopicId || state.topics[0].id);
+            return;
+        }
+
+        await clearCurrentConversationView();
+    }
+
+    async function selectTopic(topicId, options = {}) {
+        if (!state.currentSelectedItem.id || !topicId) {
+            return;
+        }
+
+        closeTopicActionMenu();
+        await stopHistoryWatcher();
+        const selectedAgentId = state.currentSelectedItem.id;
+        state.currentTopicId = topicId;
+        clearTopicKnowledgeBaseDocuments();
+        resetNotesState({
+            clearTopicNotes: true,
+            clearSelection: true,
+            clearActiveNote: true,
+            closeDetailView: true,
+            clearFlashcards: true,
+        });
+        resetComposerState({
+            clearAttachments: true,
+            clearSelectionContext: true,
+        });
+        resetReaderState();
+        setLeftSidebarMode('source-list');
+        setLeftReaderTab('guide');
+        setRightPanelMode('notes');
+        renderReaderPanel();
+        syncWorkspaceContext();
+        syncCurrentTopicKnowledgeBaseControls();
+        messageRendererApi?.setCurrentTopicId?.(topicId);
+
+        const history = await chatAPI.getChatHistory(selectedAgentId, topicId);
+        if (!isActiveTopicSelection(selectedAgentId, topicId)) {
+            return;
+        }
+        state.currentChatHistory = normalizeHistory(history);
+        renderTopics();
+        syncCurrentTopicKnowledgeBaseControls();
+        await renderCurrentHistory();
+
+        const historyPath = buildHistoryFilePath();
+        if (historyPath) {
+            await chatAPI.watcherStart(historyPath, selectedAgentId, topicId);
+        }
+
+        runTopicBackgroundTask('topic secondary refresh', () => refreshTopicSecondaryPanels(selectedAgentId, topicId));
+
+        if (!shouldPersistTopicSelection(options)) {
+            return;
+        }
+
+        runTopicBackgroundTask('topic selection persistence', () => persistTopicSelectionSideEffects(selectedAgentId, topicId));
+    }
+
+    async function selectAgent(agentId, options = {}) {
+        closeTopicActionMenu();
+        await stopHistoryWatcher();
+        const config = await chatAPI.getAgentConfig(agentId);
+        if (!config || config.error) {
+            ui.showToastNotification(`加载智能体失败：${config?.error || '未知错误'}`, 'error');
+            return;
+        }
+
+        state.currentSelectedItem = {
+            id: agentId,
+            type: 'agent',
+            name: config.name || agentId,
+            avatarUrl: config.avatarUrl || defaultAgentAvatar,
+            config,
+        };
+        resetComposerState({
+            clearAttachments: true,
+            clearSelectionContext: true,
+        });
+        resetNotesState({
+            clearTopicNotes: true,
+            clearAgentNotes: true,
+            clearSelection: true,
+            clearActiveNote: true,
+            closeDetailView: true,
+            clearFlashcards: true,
+        });
+        resetReaderState();
+        setLeftSidebarMode('source-list');
+        setLeftReaderTab('guide');
+        renderReaderPanel();
+
+        if (el.agentSettingsContainerTitle) {
+            el.agentSettingsContainerTitle.textContent = '学科设置';
+        }
+        if (el.selectedAgentNameForSettings) {
+            el.selectedAgentNameForSettings.textContent = config.name || agentId;
+        }
+        syncWorkspaceContext();
+        setPromptVisible(true);
+        messageRendererApi?.setCurrentSelectedItem?.(state.currentSelectedItem);
+        messageRendererApi?.setCurrentItemAvatar?.(state.currentSelectedItem.avatarUrl);
+        messageRendererApi?.setCurrentItemAvatarColor?.(config.avatarCalculatedColor || null);
+
+        await populateAgentForm(config);
+        await loadTopics({ preferredTopicId: options.preferredTopicId || null });
+        runTopicBackgroundTask('agent secondary refresh', () => refreshAgentSecondaryPanels(agentId));
+        if (options.showSubjectWorkspace !== false) {
+            showSubjectWorkspace();
+        }
+
+        if (state.topics.length > 0) {
+            await selectTopic(state.currentTopicId || state.topics[0].id, {
+                fromWatcher: options.fromWatcher === true,
+            });
+            return;
+        }
+
+        state.currentTopicId = null;
+        state.currentChatHistory = [];
+        clearTopicKnowledgeBaseDocuments();
+        resetReaderState();
+        renderReaderPanel();
+        syncCurrentTopicKnowledgeBaseControls();
+        renderTopicKnowledgeBaseFiles();
+        await renderCurrentHistory();
+        syncComposerAvailability();
+        renderSubjectOverview();
+        runTopicBackgroundTask('empty agent logs refresh', async () => {
+            if (state.currentSelectedItem?.id === agentId && !state.currentTopicId) {
+                await refreshLogs();
+            }
+        });
+    }
+
+    function buildMarkdownExport() {
+        const settings = getGlobalSettings();
+        return state.currentChatHistory.map((message) => {
+            const title = message.role === 'assistant'
+                ? (message.name || state.currentSelectedItem.name || 'Assistant')
+                : message.role === 'user'
+                    ? (settings.userName || 'User')
+                    : 'System';
+            const content = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+            const attachments = Array.isArray(message.attachments) && message.attachments.length > 0
+                ? `\n\nAttachments:\n${message.attachments.map((item) => `- ${item.name}: ${item.internalPath || item.src || ''}`).join('\n')}`
+                : '';
+            return `## ${title}\n\n${content}${attachments}`;
+        }).join('\n\n---\n\n');
+    }
+
+    async function exportCurrentTopic() {
+        if (!state.currentTopicId) {
+            return;
+        }
+
+        const topic = state.topics.find((item) => item.id === state.currentTopicId);
+        const result = await chatAPI.exportTopicAsMarkdown({
+            topicName: topic?.name || state.currentTopicId,
+            markdownContent: buildMarkdownExport(),
+        });
+        if (!result?.success) {
+            ui.showToastNotification(result?.error || '导出失败', 'error');
+            return;
+        }
+
+        ui.showToastNotification('话题已导出。', 'success');
+    }
+
+    async function createAgent() {
+        const result = await new Promise((resolve) => {
+            const overlay = document.createElement('div');
+            overlay.className = 'confirm-dialog-overlay prompt-dialog-overlay';
+
+            const dialog = document.createElement('div');
+            dialog.className = 'confirm-dialog prompt-dialog';
+
+            const titleEl = document.createElement('div');
+            titleEl.className = 'confirm-dialog-title';
+            titleEl.textContent = '新建学科入口';
+            dialog.appendChild(titleEl);
+
+            const messageEl = document.createElement('div');
+            messageEl.className = 'confirm-dialog-message prompt-dialog-message';
+            messageEl.textContent = '创建一个新的学科入口，并为它配置专属的提示词风格。';
+            dialog.appendChild(messageEl);
+
+            const nameInput = document.createElement('input');
+            nameInput.className = 'prompt-dialog-input';
+            nameInput.type = 'text';
+            nameInput.placeholder = '例如：语文 / 数学 / 英语';
+            dialog.appendChild(nameInput);
+
+            const errorEl = document.createElement('div');
+            errorEl.className = 'prompt-dialog-error';
+            dialog.appendChild(errorEl);
+
+            const emojiSection = document.createElement('div');
+            emojiSection.style.cssText = 'display:flex;align-items:center;gap:12px;margin-top:4px;';
+
+            const emojiLabel = document.createElement('span');
+            emojiLabel.textContent = '学科图标';
+            emojiLabel.style.cssText = 'font-size:14px;color:var(--muted);font-weight:500;';
+            emojiSection.appendChild(emojiLabel);
+
+            const emojiPickerRoot = document.createElement('div');
+            emojiPickerRoot.className = 'subject-emoji-picker';
+            emojiPickerRoot.style.cssText = 'position:relative;display:inline-flex;align-items:center;gap:8px;';
+
+            const agentIndex = state.agents.length;
+            let hasUserSelectedEmoji = false;
+            let currentEmoji = resolveSubjectCardEmoji({ agent: { name: '' }, index: agentIndex });
+
+            const emojiTrigger = document.createElement('button');
+            emojiTrigger.className = 'subject-emoji-picker__trigger';
+            emojiTrigger.type = 'button';
+            emojiTrigger.setAttribute('aria-haspopup', 'dialog');
+            emojiTrigger.setAttribute('aria-expanded', 'false');
+            emojiTrigger.innerHTML = `<span class="subject-emoji-picker__preview" aria-hidden="true">${escapeHtml(currentEmoji)}</span><span class="subject-emoji-picker__label">选择</span>`;
+
+            const emojiPopover = document.createElement('div');
+            emojiPopover.className = 'subject-emoji-picker__popover hidden';
+            emojiPopover.setAttribute('role', 'dialog');
+            emojiPopover.setAttribute('aria-label', '选择卡片 Emoji');
+            emojiPopover.setAttribute('aria-hidden', 'true');
+            const isDark = documentObj.body.classList.contains('dark-theme');
+            emojiPopover.innerHTML = `<span class="subject-emoji-picker__arrow" aria-hidden="true"></span><emoji-picker class="${isDark ? 'dark' : 'light'}"></emoji-picker>`;
+
+            const emojiInput = document.createElement('input');
+            emojiInput.type = 'hidden';
+
+            emojiPickerRoot.appendChild(emojiTrigger);
+            emojiPickerRoot.appendChild(emojiPopover);
+            emojiPickerRoot.appendChild(emojiInput);
+            emojiSection.appendChild(emojiPickerRoot);
+            dialog.appendChild(emojiSection);
+
+            const buttonsEl = document.createElement('div');
+            buttonsEl.className = 'confirm-dialog-buttons';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.className = 'confirm-dialog-btn confirm-dialog-cancel';
+            cancelBtn.textContent = '取消';
+            buttonsEl.appendChild(cancelBtn);
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.className = 'confirm-dialog-btn confirm-dialog-confirm';
+            confirmBtn.textContent = '创建';
+            buttonsEl.appendChild(confirmBtn);
+
+            dialog.appendChild(buttonsEl);
+            overlay.appendChild(dialog);
+            document.body.appendChild(overlay);
+
+            const picker = emojiPopover.querySelector('emoji-picker');
+
+            const cleanup = (value) => {
+                document.removeEventListener('keydown', handleKeydown);
+                document.removeEventListener('click', handleDocumentClick);
+                overlay.classList.remove('visible');
+                setTimeout(() => {
+                    if (overlay.parentNode) {
+                        overlay.parentNode.removeChild(overlay);
+                    }
+                    resolve(value);
+                }, 200);
+            };
+
+            const submit = () => {
+                const name = nameInput.value.trim();
+                if (!name) {
+                    errorEl.textContent = '请输入学科名称。';
+                    nameInput.focus();
+                    return;
+                }
+                errorEl.textContent = '';
+                cleanup({ name, cardEmoji: emojiInput.value || currentEmoji });
+            };
+
+            const closeEmojiPicker = () => {
+                emojiPopover.classList.add('hidden');
+                emojiPopover.setAttribute('aria-hidden', 'true');
+                emojiTrigger.setAttribute('aria-expanded', 'false');
+            };
+
+            const openEmojiPicker = async () => {
+                const configure = windowObj.UniStudyEmojiPicker?.configure;
+                if (typeof configure === 'function') {
+                    configure(picker, {
+                        locale: windowObj.navigator?.language || 'zh-CN',
+                    });
+                }
+                emojiPopover.classList.remove('hidden');
+                emojiPopover.setAttribute('aria-hidden', 'false');
+                emojiTrigger.setAttribute('aria-expanded', 'true');
+                picker?.focus?.();
+            };
+
+            const toggleEmojiPicker = () => {
+                if (emojiPopover.classList.contains('hidden')) {
+                    void openEmojiPicker();
+                } else {
+                    closeEmojiPicker();
+                }
+            };
+
+            const handleDocumentClick = (event) => {
+                if (emojiPopover.classList.contains('hidden')) return;
+                const target = event.target;
+                if (target instanceof windowObj.Node && emojiPickerRoot.contains(target)) {
+                    return;
+                }
+                closeEmojiPicker();
+            };
+
+            const handleKeydown = (event) => {
+                if (event.key === 'Escape') {
+                    if (!emojiPopover.classList.contains('hidden')) {
+                        event.preventDefault();
+                        closeEmojiPicker();
+                        return;
+                    }
+                    event.preventDefault();
+                    cleanup(null);
+                } else if (event.key === 'Enter') {
+                    event.preventDefault();
+                    submit();
+                }
+            };
+
+            nameInput.addEventListener('input', () => {
+                if (hasUserSelectedEmoji) return;
+                const name = nameInput.value.trim();
+                currentEmoji = resolveSubjectCardEmoji({ agent: { name }, index: agentIndex });
+                emojiTrigger.querySelector('.subject-emoji-picker__preview').textContent = currentEmoji;
+            });
+
+            nameInput.addEventListener('input', () => {
+                if (errorEl.textContent) {
+                    errorEl.textContent = '';
+                }
+            });
+
+            emojiTrigger.addEventListener('click', (event) => {
+                event.stopPropagation();
+                toggleEmojiPicker();
+            });
+
+            picker.addEventListener('emoji-click', (event) => {
+                event.stopPropagation();
+                const detail = event?.detail || {};
+                let emoji = '';
+                if (typeof detail.unicode === 'string' && detail.unicode) {
+                    emoji = detail.unicode;
+                } else if (typeof detail.emoji === 'string' && detail.emoji) {
+                    emoji = detail.emoji;
+                } else if (typeof detail.emoji?.unicode === 'string' && detail.emoji.unicode) {
+                    emoji = detail.emoji.unicode;
+                }
+                if (!emoji) return;
+                hasUserSelectedEmoji = true;
+                currentEmoji = normalizeSubjectCardEmoji(emoji);
+                emojiTrigger.querySelector('.subject-emoji-picker__preview').textContent = currentEmoji;
+                emojiInput.value = currentEmoji;
+                closeEmojiPicker();
+                nameInput.focus();
+            });
+
+            cancelBtn.onclick = () => cleanup(null);
+            confirmBtn.onclick = submit;
+            overlay.onclick = (event) => {
+                if (event.target === overlay) {
+                    cleanup(null);
+                }
+            };
+
+            document.addEventListener('keydown', handleKeydown);
+            document.addEventListener('click', handleDocumentClick);
+
+            requestAnimationFrame(() => {
+                overlay.classList.add('visible');
+                nameInput.focus();
+                nameInput.select();
+            });
+        });
+
+        if (!result) {
+            return;
+        }
+
+        const initialConfig = result.cardEmoji ? { cardEmoji: result.cardEmoji } : null;
+        const apiResult = await chatAPI.createAgent(result.name.trim(), initialConfig);
+        if (apiResult?.error) {
+            ui.showToastNotification(apiResult.error, 'error');
+            return;
+        }
+
+        await loadAgents();
+        await selectAgent(apiResult.agentId);
+    }
+
+    async function createTopic() {
+        if (!state.currentSelectedItem.id) {
+            ui.showToastNotification('请先选择一个智能体。', 'warning');
+            return;
+        }
+
+        const result = await chatAPI.createNewTopicForAgent(state.currentSelectedItem.id, '', false, true);
+        if (result?.error) {
+            ui.showToastNotification(result.error, 'error');
+            return;
+        }
+
+        await loadTopics({ preferredTopicId: result.topicId });
+        await selectTopic(result.topicId);
+    }
+
+    async function deleteAgentById(agentId, options = {}) {
+        if (!agentId) {
+            return false;
+        }
+
+        const isCurrentAgent = agentId === state.currentSelectedItem.id;
+        const fallbackAgent = state.agents.find((agent) => agent.id === agentId) || null;
+        const agentLabel = options.agentName || fallbackAgent?.name || fallbackAgent?.id || agentId;
+
+        closeTopicActionMenu();
+        const confirmed = await ui.showConfirmDialog(
+            `确定删除学科 ${agentLabel} 吗？这会删除该学科下的全部话题、笔记和资料。`,
+            '删除学科',
+            '删除',
+            '取消',
+            true,
+        );
+        if (!confirmed) {
+            return false;
+        }
+
+        if (isCurrentAgent) {
+            await stopHistoryWatcher();
+        }
+
+        const result = await chatAPI.deleteAgent(agentId);
+        if (result?.error) {
+            ui.showToastNotification(result.error, 'error');
+            return false;
+        }
+
+        if (isCurrentAgent) {
+            state.currentSelectedItem = { id: null, type: 'agent', name: null, avatarUrl: null, config: null };
+            state.currentTopicId = null;
+            state.currentChatHistory = [];
+            clearTopicKnowledgeBaseDocuments();
+            resetNotesState({
+                clearTopicNotes: true,
+                clearAgentNotes: true,
+                clearSelection: true,
+                clearActiveNote: true,
+                closeDetailView: true,
+                clearFlashcards: true,
+            });
+            resetComposerState({
+                clearAttachments: true,
+                clearSelectionContext: true,
+            });
+            syncWorkspaceContext();
+            setPromptVisible(false);
+            closeSubjectSettingsPanel({ restoreFocus: false });
+        }
+
+        await loadAgents();
+
+        if (isCurrentAgent) {
+            showWorkspaceOverview();
+            renderTopics();
+            syncCurrentTopicKnowledgeBaseControls();
+            await renderCurrentHistory();
+        }
+
+        await refreshLogs();
+        ui.showToastNotification(`已删除学科 ${agentLabel}。`, 'success');
+        return true;
+    }
+
+    async function deleteCurrentAgent() {
+        await deleteAgentById(state.currentSelectedItem.id, {
+            agentName: state.currentSelectedItem.name || state.currentSelectedItem.id,
+        });
+    }
+
+    function bindEvents() {
+        el.agentSearchInput?.addEventListener('input', filterAgents);
+        el.topicSearchInput?.addEventListener('input', filterTopics);
+        el.createNewAgentBtn?.addEventListener('click', () => {
+            void createAgent();
+        });
+        el.workspaceOverviewCreateAgentBtn?.addEventListener('click', () => {
+            void createAgent();
+        });
+        el.workspaceBackToOverviewBtn?.addEventListener('click', () => {
+            showWorkspaceOverview();
+        });
+        el.workspaceOpenSubjectBtn?.addEventListener('click', () => {
+            showSubjectWorkspace();
+        });
+        el.quickNewTopicBtn?.addEventListener('click', () => {
+            void createTopic();
+        });
+        el.composerQuickNewTopicBtn?.addEventListener('click', () => {
+            void createTopic();
+        });
+        el.exportTopicBtn?.addEventListener('click', () => {
+            void exportCurrentTopic();
+        });
+        el.deleteAgentBtn?.addEventListener('click', () => {
+            void deleteCurrentAgent();
+        });
+        el.topicList?.addEventListener('scroll', () => {
+            closeTopicActionMenu();
+            closeSubjectActionMenu();
+        });
+        windowObj.addEventListener('resize', () => {
+            closeTopicActionMenu();
+            closeSubjectActionMenu();
+        });
+        documentObj.addEventListener('click', (event) => {
+            const target = event.target;
+            if (activeSubjectActionMenu) {
+                if (target instanceof Element && (target.closest('.subject-action-menu') || target.closest('[data-subject-card]'))) {
+                    return;
+                }
+                closeSubjectActionMenu();
+            }
+            if (!state.activeTopicMenu) {
+                return;
+            }
+
+            if (target instanceof Element && (target.closest('#topicActionMenu') || target.closest('[data-topic-menu-button]'))) {
+                return;
+            }
+            closeTopicActionMenu();
+        });
+        documentObj.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                closeTopicActionMenu();
+                closeSubjectActionMenu();
+            }
+        });
+    }
+
+    return {
+        getCurrentTopic,
+        getCurrentTopicDisplayName,
+        getCurrentAgentDisplayName,
+        closeTopicActionMenu,
+        syncWorkspaceContext,
+        filterAgents,
+        renderAgentList,
+        filterTopics,
+        renderTopics,
+        renderSubjectOverview,
+        loadAgents,
+        loadTopics,
+        renameTopic,
+        setTopicUnreadState,
+        toggleTopicLockState,
+        clearCurrentConversationView,
+        deleteTopicFromList,
+        showWorkspaceOverview,
+        selectTopic,
+        syncCurrentTopicHistoryFromFile,
+        selectAgent,
+        showSubjectWorkspace,
+        showManualNotesLibrary,
+        syncWorkspaceView,
+        exportCurrentTopic,
+        createAgent,
+        createTopic,
+        deleteCurrentAgent,
+        bindEvents,
+    };
+}
+
+export {
+    DEFAULT_AGENT_AVATAR,
+    shouldPersistTopicSelection,
+    createWorkspaceController,
+};

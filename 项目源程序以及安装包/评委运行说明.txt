@@ -1,0 +1,35 @@
+UniStudy 评委运行说明
+
+一、推荐运行方式
+
+请优先运行本目录下的安装包：
+
+UniStudy-v0.1.0-Setup.exe
+
+安装完成后，从桌面快捷方式或开始菜单启动 UniStudy。
+
+二、源码复现方式
+
+源码位于：
+
+Unistudy\
+
+源码目录未包含 node_modules。若需要从源码运行，请先安装 Node.js 与 npm，然后在 Unistudy 目录执行：
+
+npm install
+npm start
+
+如需严格按 lockfile 复现依赖，也可以使用：
+
+npm ci
+npm start
+
+三、目录说明
+
+- UniStudy-v0.1.0-Setup.exe：Windows 安装包，推荐评审和演示使用。
+- Unistudy\：项目源程序，包含 package.json、package-lock.json、src、scripts、tests、vendor 等源码和资源。
+
+四、注意事项
+
+首次使用 AI 对话、资料检索或嵌入相关功能时，需要在应用 Settings 中配置可用的模型服务地址、API Key 与模型名称。
+安装包已包含 Electron 运行环境；从安装包运行时不需要额外安装 Node.js 或 npm。

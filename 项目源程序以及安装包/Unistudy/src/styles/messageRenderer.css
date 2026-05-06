@@ -1,0 +1,2098 @@
+/* Enhanced Rendering Styles for Message Renderer */
+
+.history-window-loader {
+    display: flex;
+    justify-content: center;
+    padding: 12px 0 8px;
+}
+
+.history-window-loader__button {
+    min-height: 32px;
+    padding: 0 14px;
+    border: 1px solid rgba(31, 43, 68, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.86);
+    color: var(--text-secondary, #64728a);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.history-window-loader__button:hover,
+.history-window-loader__button:focus-visible {
+    border-color: rgba(36, 84, 214, 0.25);
+    color: var(--accent, #2454d6);
+    outline: none;
+}
+
+.history-window-loader__button:disabled {
+    cursor: progress;
+    opacity: 0.7;
+}
+
+/* Keyframes for animations */
+@keyframes unistudy-bubble-background-flow-kf {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@keyframes unistudy-bubble-border-flow-kf {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 200% 50%;
+    }
+
+    /* Adjusted for more color travel */
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@keyframes unistudy-icon-rotate {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes unistudy-icon-heartbeat {
+    0% {
+        transform: scale(1);
+        opacity: 0.6;
+    }
+
+    50% {
+        transform: scale(1.15);
+        opacity: 0.9;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 0.6;
+    }
+}
+
+@keyframes unistudy-toolname-color-flow-kf {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 150% 50%;
+    }
+
+    /* Adjusted for smoother flow with 300% background-size */
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+/* Loading dots animation */
+@keyframes unistudy-loading-dots {
+
+    0%,
+    20% {
+        color: rgba(0, 0, 0, 0);
+        text-shadow:
+            .25em 0 0 rgba(0, 0, 0, 0),
+            .5em 0 0 rgba(0, 0, 0, 0);
+    }
+
+    40% {
+        color: currentColor;
+        /* Or a specific color */
+        text-shadow:
+            .25em 0 0 rgba(0, 0, 0, 0),
+            .5em 0 0 rgba(0, 0, 0, 0);
+    }
+
+    60% {
+        text-shadow:
+            .25em 0 0 currentColor,
+            /* Or a specific color */
+            .5em 0 0 rgba(0, 0, 0, 0);
+    }
+
+    80%,
+    100% {
+        text-shadow:
+            .25em 0 0 currentColor,
+            /* Or a specific color */
+            .5em 0 0 currentColor;
+        /* Or a specific color */
+    }
+}
+
+.thinking-indicator-dots {
+    display: inline-block;
+    font-size: 1em;
+    /* Match parent font-size by default */
+    line-height: 1;
+    /* Ensure it doesn't add extra height */
+    vertical-align: baseline;
+    /* Align with the text */
+    animation: unistudy-loading-dots 1.4s infinite;
+}
+
+@keyframes unistudy-thinking-pulse-ring {
+    0%,
+    100% {
+        opacity: 0.18;
+    }
+
+    50% {
+        opacity: 0.46;
+    }
+}
+
+@keyframes unistudy-thinking-pulse-dot {
+    0%,
+    100% {
+        opacity: 0.72;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes unistudy-thinking-text-cycle {
+    0%,
+    24.99% {
+        opacity: 1;
+    }
+
+    25%,
+    100% {
+        opacity: 0;
+    }
+}
+
+.thinking-indicator.unistudy-thinking-skeleton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    min-height: 20px;
+    margin: 6px 4px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-shadow: none;
+    filter: none;
+    color: var(--secondary-text, #64728a);
+    font-style: normal;
+    line-height: 20px;
+    white-space: nowrap;
+    overflow: visible;
+    position: relative;
+    isolation: auto;
+    animation: none;
+    vertical-align: middle;
+}
+
+.thinking-indicator.unistudy-thinking-skeleton::after {
+    content: none;
+    display: none;
+}
+
+.unistudy-thinking-pulse {
+    position: relative;
+    width: 12px;
+    height: 12px;
+    flex: 0 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.unistudy-thinking-pulse-ring,
+.unistudy-thinking-pulse-dot {
+    position: absolute;
+    display: inline-flex;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.unistudy-thinking-pulse-ring {
+    inset: 0;
+    opacity: 0.18;
+    animation: unistudy-thinking-pulse-ring 1.5s ease-in-out infinite;
+}
+
+.unistudy-thinking-pulse-dot {
+    width: 7px;
+    height: 7px;
+    opacity: 0.92;
+    animation: unistudy-thinking-pulse-dot 1.5s ease-in-out infinite;
+}
+
+.unistudy-thinking-text {
+    display: inline-block;
+    width: 72px;
+    height: 20px;
+    overflow: hidden;
+    position: relative;
+    color: var(--secondary-text, #64728a);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+}
+
+.unistudy-thinking-text span {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    animation: unistudy-thinking-text-cycle 1.5s linear infinite;
+}
+
+.unistudy-thinking-text span:nth-child(2) {
+    animation-delay: 0.375s;
+}
+
+.unistudy-thinking-text span:nth-child(3) {
+    animation-delay: 0.75s;
+}
+
+.unistudy-thinking-text span:nth-child(4) {
+    animation-delay: 1.125s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .thinking-indicator.unistudy-thinking-skeleton,
+    .unistudy-thinking-pulse-ring,
+    .unistudy-thinking-pulse-dot,
+    .unistudy-thinking-text span {
+        animation: none !important;
+        transform: none !important;
+    }
+
+    .unistudy-thinking-pulse-ring {
+        opacity: 0.28;
+    }
+
+    .unistudy-thinking-text span {
+        position: static;
+        opacity: 1;
+    }
+
+    .unistudy-thinking-text span:not(:last-child) {
+        display: none;
+    }
+}
+
+/* 主气泡样式 - Tool Use */
+.tool-request-bubble {
+    background: linear-gradient(145deg, #3a7bd5 0%, #00d2ff 100%) !important;
+    background-size: 200% 200% !important;
+    animation: unistudy-bubble-background-flow-kf 20s ease-in-out infinite;
+    border-radius: 10px !important;
+    padding: 8px 15px 8px 35px !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    margin-top: 5px !important;
+    /* Add space above the tool bubble */
+    margin-bottom: 10px !important;
+    position: relative;
+    overflow: hidden;
+    line-height: 1.6;
+    display: block !important;
+    width: -moz-fit-content;
+    width: fit-content;
+    max-width: 100%;
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
+    font-size: 0.95em !important;
+    white-space: pre-wrap !important;
+    /* Restore: Allow wrapping but preserve whitespace */
+    word-break: break-all !important;
+    /* Restore: Break long strings */
+    transition: all 0.4s ease-in-out;
+    /* Add transition for smooth hover effect */
+    will-change: transform;
+    /* 优化：工具气泡通常包含动画，提升为独立层 */
+}
+
+/* Animated border for tool use */
+.tool-request-bubble::after {
+    content: "";
+    position: absolute;
+    box-sizing: border-box;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    padding: 2px;
+    /* Border thickness */
+    background: linear-gradient(60deg, #76c4f7, #00d2ff, #3a7bd5, #ffffff, #3a7bd5, #00d2ff, #76c4f7);
+    background-size: 300% 300%;
+    animation: unistudy-bubble-border-flow-kf 7s linear infinite;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* On hover, we don't need to force a width. `fit-content` will adjust to the new content. */
+/* We can keep a max-width to prevent it from becoming too wide. */
+.tool-request-bubble:hover {
+    max-width: 90%;
+    /* Just constrain the max width on hover */
+}
+
+/* New styles for summary and details sections */
+.unistudy-tool-summary {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.unistudy-tool-details {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    font-size: 0;
+    /* Use font-size to collapse content, preventing width issues */
+    transition: max-height 0.5s ease-in-out, opacity 0.5s ease-in-out, margin-top 0.5s ease-in-out;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    margin-top: 0;
+}
+
+.tool-request-bubble:hover .unistudy-tool-details {
+    max-height: 500px;
+    /* Allow space for content to show */
+    opacity: 1;
+    margin-top: 10px;
+    /* Add space between summary and details */
+    font-size: initial;
+    /* Restore font-size on hover */
+}
+
+.unistudy-tool-details pre {
+    margin: 0;
+    padding: 10px;
+    color: #f0f0f0;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+
+
+/* 内部 span 的重置 - Tool Use */
+.tool-request-bubble .unistudy-tool-label,
+.tool-request-bubble .unistudy-tool-name-highlight {
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    color: inherit !important;
+    display: inline !important;
+    font-family: inherit !important;
+    /* Inherit from parent bubble */
+    font-size: inherit !important;
+    /* Inherit from parent bubble */
+    vertical-align: baseline;
+    position: relative;
+    z-index: 1;
+}
+
+/* "Tool Use:" 标签 */
+.tool-request-bubble .unistudy-tool-label {
+    font-weight: bold;
+    color: #f1c40f;
+    margin-right: 6px;
+}
+
+/* 工具名高亮 - Tool Use */
+.tool-request-bubble .unistudy-tool-name-highlight {
+    background: linear-gradient(90deg, #f1c40f, #ffffff, #00d2ff, #f1c40f) !important;
+    background-size: 300% 100% !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    -webkit-text-fill-color: transparent !important;
+    text-fill-color: transparent !important;
+    font-style: normal !important;
+    font-weight: bold !important;
+    padding: 1px 3px !important;
+    border-radius: 4px !important;
+    animation: unistudy-toolname-color-flow-kf 4s linear infinite;
+    margin-left: 2px;
+}
+
+/* 左上角齿轮图标 - Tool Use */
+.tool-request-bubble::before {
+    content: "⚙️";
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.75);
+    z-index: 2;
+    animation: unistudy-icon-rotate 4s linear infinite;
+    transform-origin: center center;
+}
+
+/* 隐藏工具气泡内的复制按钮 */
+.tool-request-bubble .code-copy {
+    /* This might target <code> inside <pre class="tool-request-bubble"> */
+    display: none !important;
+}
+
+/* Also hide if copy button is direct child of the bubble (if no inner code element) */
+.tool-request-bubble>.code-copy {
+    display: none !important;
+}
+
+.tool-request-bubble>strong {
+    display: none !important;
+}
+
+/* Hide "内建工具调用:" strong tag if it was ever added */
+
+/* --- Learning Diary Bubble --- */
+
+/* Main container for the diary entry */
+.learning-diary-bubble {
+    background: #fdfaf6 !important;
+    /* A very light, warm parchment color */
+    border: 1px solid #eaddd0;
+    /* A soft, paper-like border */
+    border-radius: 8px !important;
+    padding: 12px 18px 15px 48px !important;
+    /* Adjusted padding for new icon placement */
+    color: #5d4037 !important;
+    /* A warm, dark brown for text */
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+    margin-top: 10px !important;
+    /* Add space above the diary bubble */
+    margin-bottom: 12px !important;
+    position: relative;
+    overflow: visible;
+    /* Allow for potential pseudo-elements to peek out */
+    line-height: 1.7;
+    display: block !important;
+    font-family: var(--diary-font-family, 'Georgia', 'Times New Roman', serif) !important;
+    font-size: 1em !important;
+    white-space: normal !important;
+    /* Allow text to wrap naturally */
+    word-break: break-word !important;
+    will-change: transform;
+    /* 优化：日记气泡提升为独立层 */
+}
+
+/* Remove extra spacing in diary content caused by markdown paragraphs */
+.diary-content>p:first-child {
+    margin-top: 0;
+}
+
+.diary-content>p:last-child {
+    margin-bottom: 0;
+}
+
+/* The decorative icon on the top left, changed to a quill */
+.learning-diary-bubble::before {
+    content: "✒️";
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    font-size: 22px;
+    opacity: 0.6;
+    z-index: 2;
+    transform: rotate(-15deg);
+    /* Tilted for a more dynamic look */
+    animation: none !important;
+    /* Removing previous animation for a more static, elegant feel */
+}
+
+/* Removing the animated border for a cleaner look */
+.learning-diary-bubble::after {
+    display: none !important;
+}
+
+/* Header section containing title and date */
+.diary-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #d7ccc8;
+    /* A subtle separator line */
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+}
+
+/* Diary title */
+.diary-title {
+    font-weight: bold;
+    font-size: 1.1em;
+    color: #6d4c41;
+    /* A rich, brownish color */
+    font-family: var(--diary-font-family, 'Georgia', 'Times New Roman', serif) !important;
+}
+
+/* Date on the top right */
+.diary-date {
+    font-size: 0.85em;
+    color: #a1887f;
+    /* Lighter brown for secondary info */
+    font-style: italic;
+}
+
+/* Container for the notebook info */
+.diary-notebook-info {
+    margin-bottom: 12px;
+    font-size: 0.9em;
+    color: #8d6e63;
+}
+
+.diary-notebook-label {
+    font-weight: bold;
+}
+
+.diary-notebook-name {
+    font-style: italic;
+    color: #a1887f;
+    background: rgba(161, 136, 127, 0.08);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+
+/* The main content of the diary entry */
+.diary-content {
+    font-size: 0.95em;
+    color: #4e342e;
+    /* A dark, rich brown for readability */
+    white-space: normal;
+    /* Changed from pre-wrap to normal to avoid extra line breaks from MD */
+    word-break: break-word;
+}
+
+/* Hide copy button as it's not a code block */
+.learning-diary-bubble>.code-copy {
+    display: none !important;
+}
+
+/* --- Learning Diary Dark Theme Overrides --- */
+body:not(.light-theme) .learning-diary-bubble {
+    background: #2c2a3a !important;
+    /* A deep, slightly magical purple-gray */
+    border-color: #4a485f;
+    color: #d8d2c9 !important;
+    /* A soft, parchment-like off-white */
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25);
+}
+
+body:not(.light-theme) .diary-header {
+    border-bottom-color: #4a485f;
+}
+
+body:not(.light-theme) .diary-title {
+    color: #ffb74d;
+    /* A warm, golden-orange for the title */
+}
+
+body:not(.light-theme) .diary-date {
+    color: #a0a0b0;
+    /* A muted gray for secondary info */
+}
+
+body:not(.light-theme) .diary-notebook-info {
+    color: #b0bec5;
+}
+
+body:not(.light-theme) .diary-notebook-name {
+    color: #ffcc80;
+    /* Lighter shade of the title color */
+    background: rgba(255, 183, 77, 0.1);
+}
+
+body:not(.light-theme) .diary-content {
+    color: #c5c8c6;
+    /* A clear, readable light gray for the main content */
+}
+
+/* HTML5 音频播放器样式 */
+audio[controls] {
+    background: transparent !important;
+    /* 将背景设置为透明 */
+    border: none !important;
+    /* 移除边框 */
+    border-radius: 10px !important;
+    padding: 10px 15px !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+    margin-bottom: 10px !important;
+    display: block;
+    width: 350px;
+    position: relative;
+    /* Added for pseudo-element positioning */
+    overflow: hidden;
+    /* Added to contain the pseudo-element */
+    z-index: 1;
+    /* Ensure audio player is above the pseudo-element */
+}
+
+/* Animated Border for Audio Player */
+audio[controls]::after {
+    content: "";
+    position: absolute;
+    box-sizing: border-box;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    padding: 2px;
+    /* Border thickness */
+    background: linear-gradient(60deg, #76c4f7, #00d2ff, #3a7bd5, #ffffff, #3a7bd5, #00d2ff, #76c4f7);
+    /* Same gradient as the tool-use bubble */
+    background-size: 300% 300%;
+    animation: unistudy-bubble-border-flow-kf 7s linear infinite;
+    /* Same animation as the tool-use bubble */
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    z-index: 0;
+    /* Place behind the actual audio controls */
+    pointer-events: none;
+}
+
+audio[controls]::-webkit-media-controls-panel {
+    background: #ffffff !important;
+    border-radius: 9px !important;
+    margin: 5px !important;
+    padding: 5px !important;
+    box-sizing: border-box !important;
+    position: relative;
+    /* Ensure panel is above the pseudo-element */
+    z-index: 2;
+    /* Increase z-index for the panel to be on top of the pseudo-element */
+}
+
+audio[controls]::-webkit-media-controls-play-button,
+audio[controls]::-webkit-media-controls-mute-button,
+audio[controls]::-webkit-media-controls-fullscreen-button,
+audio[controls]::-webkit-media-controls-overflow-button {
+    filter: brightness(0.3) contrast(1.5) !important;
+}
+
+audio[controls]::-webkit-media-controls-current-time-display,
+audio[controls]::-webkit-media-controls-time-remaining-display {
+    color: #181818 !important;
+    text-shadow: none !important;
+}
+
+audio[controls]::-webkit-media-controls-timeline {
+    background-color: rgb(255, 255, 255) !important;
+    border-radius: 4px !important;
+    height: 6px !important;
+    margin: 0 5px !important;
+}
+
+audio[controls]::-webkit-media-controls-timeline::-webkit-slider-thumb {
+    background-color: #555555 !important;
+    border: 1px solid rgba(0, 0, 0, 0.3) !important;
+    box-shadow: 0 0 2px rgba(0, 0, 0, 0.3) !important;
+    height: 12px !important;
+    width: 12px !important;
+    border-radius: 50% !important;
+}
+
+audio[controls]::-webkit-media-controls-timeline::-moz-range-thumb {
+    background-color: #555555 !important;
+    border: 1px solid rgba(0, 0, 0, 0.3) !important;
+    height: 12px !important;
+    width: 12px !important;
+    border-radius: 50% !important;
+}
+
+audio[controls]::-webkit-media-controls-timeline::-moz-range-track {
+    background-color: rgb(255, 255, 255) !important;
+    border-radius: 4px !important;
+    height: 6px !important;
+}
+
+audio[controls]::-webkit-media-controls-volume-slider {
+    background-color: rgb(255, 255, 255) !important;
+    border-radius: 3px !important;
+    height: 4px !important;
+    margin: 0 5px !important;
+}
+
+audio[controls]::-webkit-media-controls-volume-slider::-webkit-slider-thumb {
+    background-color: #555555 !important;
+    border: 1px solid rgba(0, 0, 0, 0.3) !important;
+    height: 10px !important;
+    width: 10px !important;
+    border-radius: 50% !important;
+}
+
+/* Context Menu Item Colors */
+#chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak) {
+    color: #f3f6fb !important;
+    border-left: 2px solid transparent;
+}
+
+#chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak):hover {
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.12) !important;
+    border-left-color: rgba(255, 255, 255, 0.38);
+}
+
+#chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak):focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.58);
+    outline-offset: -2px;
+}
+
+body.light-theme #chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak) {
+    color: #1f2a37 !important;
+}
+
+body.light-theme #chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak):hover {
+    color: #111827 !important;
+    background-color: rgba(17, 24, 39, 0.08) !important;
+    border-left-color: rgba(17, 24, 39, 0.26);
+}
+
+body.light-theme #chatContextMenu .context-menu-item:not(.danger-item):not(.info-item):not(.regenerate-text):not(.context-menu-item-speak):focus-visible {
+    outline: 2px solid rgba(17, 24, 39, 0.38);
+}
+
+.context-menu-item.danger-item {
+    color: hsl(1, 83.80%, 61.20%) !important;
+    /* Red */
+}
+
+.context-menu-item.danger-item:hover {
+    background-color: rgba(229, 57, 53, 0.1) !important;
+}
+
+.context-menu-item.info-item {
+    color: rgb(90, 171, 238) !important;
+    /* Lighter Blue */
+}
+
+.context-menu-item.info-item:hover {
+    background-color: rgba(30, 136, 229, 0.1) !important;
+}
+
+.context-menu-item.regenerate-text {
+    color: #43A047 !important;
+    /* Green for regenerate */
+}
+
+.context-menu-item.regenerate-text:hover {
+    background-color: rgba(67, 160, 71, 0.1) !important;
+}
+
+/* Highlight for @tags */
+.md-content .highlighted-tag {
+    color: #00a99d;
+    /* A distinct teal color */
+    font-weight: 500;
+    background-color: rgba(0, 169, 157, 0.1);
+    padding: 1px 4px;
+    border-radius: 4px;
+    display: inline-block;
+    line-height: 1.4;
+}
+
+body.light-theme .md-content .highlighted-tag {
+    color: #00796b;
+    background-color: rgba(0, 121, 107, 0.08);
+}
+
+/* Highlight for @!alert-tags */
+.md-content .highlighted-alert-tag {
+    color: #f1c40f;
+    /* A soft golden color */
+    font-weight: 600;
+    background-color: rgba(241, 196, 15, 0.12);
+    padding: 1px 4px;
+    border-radius: 4px;
+    display: inline-block;
+    line-height: 1.4;
+    border: 1px solid rgba(241, 196, 15, 0.2);
+}
+
+body.light-theme .md-content .highlighted-alert-tag {
+    color: #b8860b;
+    /* DarkGoldenRod for better contrast in light theme */
+    background-color: rgba(184, 134, 11, 0.1);
+    border-color: rgba(184, 134, 11, 0.15);
+}
+
+/* Highlight for quoted text */
+.md-content .highlighted-quote {
+    /* Increased specificity */
+    color: var(--quoted-text, #ff7f50) !important;
+    /* Use CSS variable with a Coral fallback color */
+    display: inline !important;
+    /* Ensure it behaves as an inline element and does not break the line */
+    vertical-align: baseline;
+    /* Align properly with the surrounding text */
+    word-break: break-all;
+    /* Allow breaking within the quote to prevent overflow and layout issues */
+}
+
+/* AI 发送的链接样式 */
+.md-content a {
+    color: #87CEEB !important;
+    /* 柔和的天蓝色 */
+}
+
+/* Markdown Table Styles (Theme Aware) */
+/* Define light theme variables as defaults */
+:root {
+    --table-border-color: var(--border-color);
+    --table-text-color: var(--primary-text);
+    --table-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.2);
+    --table-header-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.3);
+    --table-header-text-color: var(--highlight-text);
+    --table-row-even-bg-color: transparent;
+    --table-row-hover-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.4);
+}
+
+/* Define dark theme variables when .dark-theme (or lack of .light-theme) is active */
+body:not(.light-theme) {
+    /* Or just .dark-theme if that's how your theme switching works */
+    --table-border-color: var(--border-color);
+    --table-text-color: var(--primary-text);
+    --table-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.2);
+    --table-header-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.3);
+    --table-header-text-color: var(--highlight-text);
+    --table-row-even-bg-color: transparent;
+    --table-row-hover-bg-color: rgba(var(--rgb-secondary-bg-dark, 40, 40, 44), 0.4);
+
+    /* NEW: Tool Result Bubble Dark Theme - Modern Deep Dark */
+    --tool-result-bg: linear-gradient(145deg, #1c1c1e, #2c2c2e);
+    --tool-result-border-color: rgba(255, 255, 255, 0.08);
+    --tool-result-text-color: #f2f2f7;
+    --tool-result-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --tool-result-header-border-color: rgba(255, 255, 255, 0.1);
+    --tool-result-name-color: #64d2ff;
+    --tool-result-name-bg: rgba(100, 210, 255, 0.15);
+    --tool-result-item-key-color: #8e8e93;
+    --tool-result-item-value-color: #ebebf5;
+    --tool-result-item-link-color: #0a84ff;
+    --tool-result-item-strong-color: #ffd60a;
+    --tool-result-footer-color: #8e8e93;
+    --unistudy-canvas-bg: #2d3748;
+    --unistudy-canvas-text-color: #e2e8f0;
+    --unistudy-canvas-border-color: #4a5568;
+    --unistudy-canvas-dots-color: #48bb78;
+}
+
+body.light-theme {
+    --table-border-color: var(--border-color);
+    --table-text-color: var(--primary-text);
+    --table-bg-color: rgba(var(--rgb-secondary-bg-light, 255, 255, 255), 0.6);
+    --table-header-bg-color: rgba(var(--rgb-secondary-bg-light, 255, 255, 255), 0.7);
+    --table-header-text-color: var(--highlight-text);
+    --table-row-even-bg-color: transparent;
+    --table-row-hover-bg-color: rgba(var(--rgb-secondary-bg-light, 255, 255, 255), 0.8);
+
+    /* NEW: Tool Result Bubble Light Theme */
+    --tool-result-bg: linear-gradient(145deg, #f4f6f8, #e8eaf0);
+    --tool-result-border-color: rgba(0, 0, 0, 0.1);
+    --tool-result-text-color: #333;
+    --tool-result-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --tool-result-header-border-color: rgba(0, 0, 0, 0.1);
+    --tool-result-name-color: #0277bd;
+    --tool-result-name-bg: rgba(2, 119, 189, 0.1);
+    --tool-result-item-key-color: #546e7a;
+    --tool-result-item-value-color: #263238;
+    --tool-result-item-link-color: #1976d2;
+    --tool-result-item-strong-color: #b8860b;
+    /* DarkGoldenRod */
+    --tool-result-footer-color: #78909c;
+    --unistudy-canvas-bg: #f7fafc;
+    --unistudy-canvas-text-color: #2d3748;
+    --unistudy-canvas-border-color: #e2e8f0;
+    --unistudy-canvas-dots-color: #38a169;
+}
+
+.md-content table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: auto;
+    border: 1px solid var(--table-border-color);
+    color: var(--table-text-color);
+    background-color: var(--table-bg-color);
+}
+
+.md-content th,
+.md-content td {
+    border: 1px solid var(--table-border-color);
+    padding: 10px 15px;
+    text-align: left;
+}
+
+.md-content th {
+    background-color: var(--table-header-bg-color);
+    font-weight: bold;
+    color: var(--table-header-text-color);
+}
+
+/* Optional: Re-enable for alternating rows if desired for both themes */
+.md-content tr:nth-child(even) td {
+    /* background-color: var(--table-row-even-bg-color); */
+    /* Commented out for now, can be enabled */
+}
+
+.md-content tr:hover td {
+    background-color: var(--table-row-hover-bg-color);
+}
+
+/* NEW STYLES FOR IMAGE PLACEHOLDERS */
+.image-placeholder {
+    background-color: rgba(128, 128, 128, 0.1);
+    border: 1px dashed rgba(128, 128, 128, 0.3);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: #888;
+    /* 过渡效果，让替换更平滑 */
+    transition: all 0.3s ease;
+}
+
+.image-placeholder::before {
+    /* content: "正在加载图片..."; */
+    content: '';
+    display: block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(128, 128, 128, 0.3);
+    border-top-color: #888;
+    border-radius: 50%;
+    animation: unistudy-icon-rotate 1s linear infinite;
+}
+
+/* --- Tool Result Bubble --- */
+.unistudy-tool-result-bubble {
+    display: block !important;
+    background: var(--tool-result-bg) !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--tool-result-border-color);
+    padding: 12px 18px !important;
+    color: var(--tool-result-text-color) !important;
+    box-shadow: var(--tool-result-shadow);
+    margin-top: 10px !important;
+    margin-bottom: 12px !important;
+    position: relative;
+    font-family: var(--tool-card-font-family, var(--chat-font-family, 'Segoe UI', 'Roboto', sans-serif)) !important;
+    font-size: 0.95em !important;
+    line-height: 1.6;
+    width: -moz-fit-content;
+    width: fit-content;
+    max-width: 95%;
+    transition: background 0.3s, color 0.3s, border-color 0.3s, box-shadow 0.3s;
+    /* Add transition for smooth theme change */
+    will-change: transform;
+    /* 优化：结果气泡提升为独立层 */
+}
+
+.unistudy-tool-result-bubble::before {
+    content: "📊";
+    position: absolute;
+    top: 12px;
+    left: 15px;
+    font-size: 16px;
+    opacity: 0.7;
+}
+
+.unistudy-tool-result-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 28px;
+    /* Space for the icon */
+    border-bottom: 1px solid var(--tool-result-header-border-color);
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+}
+
+.unistudy-tool-result-label {
+    font-weight: bold;
+    color: #4caf50;
+    /* Green for success */
+    font-size: 1.05em;
+}
+
+.unistudy-tool-result-name {
+    font-weight: bold;
+    color: var(--tool-result-name-color);
+    background-color: var(--tool-result-name-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.unistudy-tool-result-status {
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+/* NEW: Toggle Icon for Collapsible Result Bubble */
+.unistudy-result-toggle-icon {
+    margin-left: auto;
+    /* Pushes the icon to the far right */
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    position: relative;
+    transition: transform 0.3s ease;
+}
+
+.unistudy-result-toggle-icon::before,
+.unistudy-result-toggle-icon::after {
+    content: '';
+    position: absolute;
+    background-color: var(--tool-result-item-key-color);
+    border-radius: 1px;
+    top: 50%;
+    left: 50%;
+    transform-origin: center;
+    transition: transform 0.3s ease;
+}
+
+/* Default state (collapsed): show + */
+.unistudy-result-toggle-icon::before {
+    width: 12px;
+    height: 3px;
+    transform: translate(-50%, -50%) rotateZ(0deg);
+}
+
+.unistudy-result-toggle-icon::after {
+    width: 3px;
+    height: 12px;
+    transform: translate(-50%, -50%) rotateZ(0deg);
+}
+
+/* Expanded state: rotate vertical line 90° to hide it, leaving horizontal line as - */
+.unistudy-tool-result-bubble.expanded .unistudy-result-toggle-icon::before {
+    transform: translate(-50%, -50%) rotateZ(0deg);
+}
+
+.unistudy-tool-result-bubble.expanded .unistudy-result-toggle-icon::after {
+    transform: translate(-50%, -50%) rotateZ(90deg);
+}
+
+.unistudy-tool-result-status:containing("SUCCESS") {
+    /* This is a pseudo-selector, might not work directly in CSS */
+    color: #c8e6c9;
+    background-color: rgba(76, 175, 80, 0.2);
+}
+
+/* Specific style for SUCCESS status in light theme */
+body.light-theme .unistudy-tool-result-status:containing("SUCCESS") {
+    color: #1b5e20;
+    /* Dark green text */
+    background-color: rgba(76, 175, 80, 0.15);
+}
+
+.unistudy-tool-result-details {
+    padding-left: 28px;
+    /* Align with header content */
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.unistudy-tool-result-item {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.unistudy-tool-result-item-key {
+    font-weight: bold;
+    color: var(--tool-result-item-key-color);
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.unistudy-tool-result-item-value {
+    color: var(--tool-result-item-value-color);
+    word-break: break-word;
+}
+
+.unistudy-tool-result-bubble pre,
+.unistudy-tool-result-bubble code {
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
+}
+
+.unistudy-tool-result-raw-content {
+    margin: 4px 0;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace) !important;
+    font-size: 0.88em;
+    line-height: 1.5;
+    color: var(--tool-result-item-value-color);
+    max-height: 400px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+body:not(.light-theme) .unistudy-tool-result-raw-content {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.unistudy-tool-result-markdown-content {
+    margin: 4px 0;
+    padding: 4px 0;
+    max-height: 500px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    word-break: break-word;
+}
+
+.unistudy-tool-result-markdown-content pre {
+    margin: 6px 0;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.06);
+    border-radius: 6px;
+    font-size: 0.88em;
+    line-height: 1.5;
+    overflow-x: auto;
+}
+
+body:not(.light-theme) .unistudy-tool-result-markdown-content pre {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.unistudy-tool-result-markdown-content>p:first-child {
+    margin-top: 0;
+}
+
+.unistudy-tool-result-markdown-content>p:last-child {
+    margin-bottom: 0;
+}
+
+/* Markdown support inside tool result bubble */
+.unistudy-tool-result-item-value>p:first-child,
+.unistudy-tool-result-footer>p:first-child {
+    margin-top: 0;
+}
+
+.unistudy-tool-result-item-value>p:last-child,
+.unistudy-tool-result-footer>p:last-child {
+    margin-bottom: 0;
+}
+
+.unistudy-tool-result-bubble table {
+    margin: 0.5em 0;
+    border-color: var(--tool-result-border-color);
+    background-color: rgba(0, 0, 0, 0.05);
+    width: 100%;
+}
+
+body:not(.light-theme) .unistudy-tool-result-bubble table {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.unistudy-tool-result-bubble th,
+.unistudy-tool-result-bubble td {
+    border-color: var(--tool-result-border-color);
+    padding: 6px 10px;
+}
+
+.unistudy-tool-result-bubble th {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+body:not(.light-theme) .unistudy-tool-result-bubble th {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.unistudy-tool-result-item-value a {
+    color: var(--tool-result-item-link-color) !important;
+    text-decoration: underline !important;
+}
+
+.unistudy-tool-result-item-value strong {
+    color: var(--tool-result-item-strong-color);
+    font-weight: bold;
+}
+
+.unistudy-tool-result-image {
+    max-width: 100%;
+    max-height: 250px;
+    border-radius: 6px;
+    margin-top: 5px;
+    border: 2px solid var(--tool-result-border-color);
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.unistudy-tool-result-image:hover {
+    transform: scale(1.05);
+}
+
+.unistudy-tool-result-footer {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--tool-result-header-border-color);
+    font-size: 0.9em;
+    color: var(--tool-result-footer-color);
+}
+
+.unistudy-tool-result-footer pre {
+    margin: 0;
+    padding: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+    background: none;
+}
+
+/* NEW: Styles for Collapsible Content */
+.unistudy-tool-result-collapsible-content {
+    max-height: 0;
+    opacity: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    /* Enable vertical scrolling */
+    transition: max-height 0.5s ease-in-out, opacity 0.4s ease-in-out, margin-top 0.5s ease-in-out;
+    margin-top: 0;
+    scrollbar-width: thin;
+    /* Firefox */
+    scrollbar-color: var(--tool-result-item-key-color) transparent;
+}
+
+/* Custom scrollbar for Webkit */
+.unistudy-tool-result-collapsible-content::-webkit-scrollbar {
+    width: 4px;
+}
+
+.unistudy-tool-result-collapsible-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.unistudy-tool-result-collapsible-content::-webkit-scrollbar-thumb {
+    background-color: var(--tool-result-item-key-color);
+    border-radius: 10px;
+    opacity: 0.5;
+}
+
+.unistudy-tool-result-bubble.expanded .unistudy-tool-result-collapsible-content {
+    max-height: 500px;
+    /* Set a reasonable max height for scrolling */
+    opacity: 1;
+    margin-top: 10px;
+    /* Add space when expanded */
+}
+
+/* --- User Clicked Button Bubble --- */
+.user-clicked-button-bubble {
+    display: inline-block;
+    background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+    background-size: 200% 200%;
+    animation: unistudy-bubble-background-flow-kf 10s ease-in-out infinite;
+    color: #ffffff;
+    padding: 5px 12px;
+    border-radius: 16px;
+    font-size: 0.9em;
+    font-weight: 500;
+    margin: 2px 4px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    cursor: default;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.user-clicked-button-bubble::before {
+    content: '▶️';
+    margin-right: 6px;
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+.user-clicked-button-bubble:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* --- UniStudy Chat Canvas Placeholder (Mini IDE Style) --- */
+@keyframes unistudy-canvas-border-pulse {
+    0% {
+        border-color: var(--unistudy-canvas-border-color);
+    }
+
+    50% {
+        border-color: var(--unistudy-canvas-dots-color);
+    }
+
+    100% {
+        border-color: var(--unistudy-canvas-border-color);
+    }
+}
+
+.unistudy-chat-canvas-placeholder {
+    display: block;
+    width: -moz-fit-content;
+    width: fit-content;
+    background-color: var(--unistudy-canvas-bg);
+    color: var(--unistudy-canvas-text-color);
+    border: 1px solid var(--unistudy-canvas-border-color);
+    padding: 8px 15px;
+    border-radius: 6px;
+    /* More rectangular */
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+    /* IDE font */
+    font-size: 0.9em;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    position: relative;
+    margin-bottom: 10px;
+    transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+    animation: unistudy-canvas-border-pulse 4s infinite;
+}
+
+.unistudy-chat-canvas-placeholder .thinking-indicator-dots {
+    color: var(--unistudy-canvas-dots-color);
+    font-size: 1.2em;
+    text-shadow: none;
+    /* The original unistudy-loading-dots animation is reused */
+}
+
+/* --- Mermaid Diagram Styles --- */
+.mermaid-placeholder {
+    display: block;
+    background-color: rgba(128, 128, 128, 0.1);
+    border: 1px dashed rgba(128, 128, 128, 0.3);
+    border-radius: 8px;
+    min-height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: #888;
+    transition: all 0.3s ease;
+    padding: 20px;
+}
+
+.mermaid-placeholder::before {
+    content: "Rendering Mermaid Diagram...";
+    display: block;
+}
+
+.mermaid {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: var(--bg-color);
+    border-radius: 8px;
+    text-align: center;
+    /* Center the diagram */
+}
+
+.mermaid svg {
+    max-width: 100%;
+    /* Ensure SVG is responsive */
+    height: auto;
+}
+
+.mermaid-error {
+    background-color: #ffdddd;
+    border: 1px solid #ff8888;
+    color: #d8000c;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    text-align: left;
+}
+
+body:not(.light-theme) .mermaid-error {
+    background-color: #3e2727;
+    border-color: #e57373;
+    color: #ef9a9a;
+}
+
+.mermaid-error pre {
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin-top: 10px;
+    padding: 8px;
+    background-color: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+
+/* --- Stream Fade-in Animation --- */
+/*
+ * 统一 AI 内容块流式渐入动画
+ * 使用 translateX(20px) 实现你记忆中的横向滑入感
+ */
+@keyframes unistudy-stream-fade-in {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes unistudy-content-pulse {
+    0% {
+        background-color: transparent;
+    }
+
+    50% {
+        background-color: rgba(59, 130, 246, 0.08);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
+.unistudy-stream-element-fade-in {
+    animation: unistudy-stream-fade-in 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards !important;
+    will-change: opacity, transform;
+}
+
+.unistudy-stream-content-pulse {
+    animation: unistudy-content-pulse 0.3s ease-out;
+}
+
+
+/* --- Fix for streaming EMOTICON size flickering --- */
+/* Specifically constrain emoticons in a streaming message to prevent flashing */
+.message-item.streaming .md-content img[src*="表情包"] {
+    max-width: 150px;
+    /* A sensible max size for emoticons */
+    max-height: 150px;
+    height: auto;
+    /* Maintain aspect ratio */
+    display: inline-block;
+    /* Emoticons are usually inline */
+    vertical-align: middle;
+    /* Align nicely with text */
+}
+
+/* --- HTML Preview Container & Toggle --- */
+.unistudy-html-preview-container {
+    position: relative;
+    margin: 10px 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    background: var(--bg-color);
+    transition: all 0.3s ease, min-height 0.3s ease;
+    /* 🟢 添加最小高度过渡，防止高度塌陷导致的滚动跳动 */
+}
+
+.unistudy-html-preview-toggle {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    padding: 4px 12px;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.2s ease;
+}
+
+.unistudy-html-preview-toggle:hover {
+    background: rgba(0, 0, 0, 0.7);
+    transform: scale(1.05);
+}
+
+.unistudy-html-preview-toggle span {
+    pointer-events: none;
+}
+
+.unistudy-html-preview-frame {
+    width: 100%;
+    min-height: 100px;
+    max-height: 100vh;
+    /* 稍微增加最大高度 */
+    border: none;
+    background: white;
+    display: block;
+    transition: height 0.3s ease, opacity 0.2s ease;
+    /* 🟢 添加透明度过渡，让切换更平滑 */
+}
+
+.unistudy-html-preview-status {
+    position: absolute;
+    left: 10px;
+    right: 86px;
+    top: 8px;
+    z-index: 9;
+    min-height: 24px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: rgba(15, 23, 42, 0.74);
+    color: #e2e8f0;
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    backdrop-filter: blur(5px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.unistudy-html-preview-status.is-error,
+.unistudy-html-preview-status.is-blank {
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(69, 10, 10, 0.88);
+    color: #fee2e2;
+}
+
+.unistudy-html-preview-status.is-loading {
+    border-color: rgba(56, 189, 248, 0.48);
+    background: rgba(8, 47, 73, 0.82);
+    color: #bae6fd;
+}
+
+/* 确保预览模式下容器不会因为内容切换而剧烈跳动 */
+.unistudy-html-preview-container.preview-mode {
+    background: white;
+    /* 🟢 预览模式下保持稳定的背景 */
+}
+
+/* 🟢 新增：代码块的平滑过渡 */
+.unistudy-html-preview-container pre {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* 🟢 新增：当iframe正在加载时的平滑过渡状态 */
+.unistudy-html-preview-container.preview-mode pre {
+    opacity: 0;
+    transform: translateY(-10px);
+}
+
+/* Ensure the pre block inside container doesn't have extra margins */
+.unistudy-html-preview-container pre {
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+
+/* Dark theme adjustments for the container */
+body:not(.light-theme) .unistudy-html-preview-container {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* --- UniStudy Thought Chain Bubble --- */
+.reasoning-bubble {
+    display: block !important;
+    background: rgba(120, 120, 128, 0.05) !important;
+    border-radius: 12px !important;
+    border: 1px solid rgba(120, 120, 128, 0.2);
+    padding: 10px 15px !important;
+    margin: 10px 0 !important;
+    position: relative;
+    font-family: var(--tool-card-font-family, var(--chat-font-family, var(--font-family, sans-serif))) !important;
+    font-size: 0.92em !important;
+    line-height: 1.6;
+    width: fit-content;
+    max-width: 98%;
+    transition: all 0.3s ease;
+}
+
+body.light-theme .reasoning-bubble {
+    background: rgba(0, 0, 0, 0.03) !important;
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.unistudy-thought-chain-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.unistudy-thought-chain-header:hover {
+    opacity: 1;
+}
+
+.unistudy-thought-chain-icon {
+    font-size: 1.1em;
+    filter: grayscale(0.5);
+}
+
+.unistudy-thought-chain-label {
+    font-weight: 600;
+    color: var(--primary-text);
+    font-size: 0.95em;
+}
+
+.unistudy-thought-chain-collapsible-content {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+}
+
+.reasoning-bubble.expanded .unistudy-thought-chain-collapsible-content {
+    max-height: 2000px;
+    opacity: 1;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dashed rgba(120, 120, 128, 0.2);
+}
+
+.unistudy-thought-chain-body {
+    color: var(--primary-text);
+    font-style: italic;
+}
+
+.unistudy-thought-chain-body pre {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 8px;
+    border-radius: 6px;
+    font-style: normal;
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+}
+
+.unistudy-thought-chain-body code {
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+}
+
+/* Reuse the toggle icon from tool results */
+.reasoning-bubble .unistudy-result-toggle-icon {
+    margin-left: 10px;
+}
+
+.unistudy-live-reasoning-bubble {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    overflow: hidden;
+    background: var(--panel-bg, rgba(255, 255, 255, 0.72)) !important;
+    border: 1px solid rgba(120, 120, 128, 0.22);
+    border-radius: 14px !important;
+    font-style: normal;
+    box-sizing: border-box;
+    box-shadow: none;
+}
+
+body.light-theme .unistudy-live-reasoning-bubble {
+    background: rgba(255, 255, 255, 0.74) !important;
+    border-color: rgba(0, 0, 0, 0.1);
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) {
+    border-radius: 14px !important;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-header {
+    height: 58px;
+    min-height: 58px;
+    align-items: center;
+    padding-right: 12px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-icon {
+    width: 58px;
+    height: 58px;
+    flex-basis: 58px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-text-wrap {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-title-row,
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-label {
+    min-height: 21px;
+    line-height: 21px;
+    font-size: 16px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete:not(.expanded) .unistudy-live-reasoning-toggle {
+    height: 58px;
+    flex-basis: 36px;
+    width: 36px;
+}
+
+.unistudy-live-reasoning-bubble.expanded {
+    border-radius: 14px !important;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-header {
+    height: 48px;
+    min-height: 48px;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-icon,
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-toggle {
+    height: 48px;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-text-wrap {
+    justify-content: center;
+    padding: 0;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-title-row,
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-label {
+    min-height: 18px;
+    line-height: 18px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-header {
+    height: 58px;
+    min-height: 58px;
+    padding-right: 12px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-icon,
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-toggle {
+    height: 58px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-icon {
+    width: 58px;
+    flex-basis: 58px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-toggle {
+    width: 36px;
+    flex-basis: 36px;
+}
+
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-title-row,
+.unistudy-live-reasoning-bubble.is-complete.expanded .unistudy-live-reasoning-label {
+    min-height: 21px;
+    line-height: 21px;
+    font-size: 16px;
+}
+
+.unistudy-live-reasoning-header {
+    height: 78px;
+    min-height: 78px;
+    padding: 0 10px 0 0;
+    gap: 0;
+    opacity: 1;
+    box-sizing: border-box;
+    align-items: stretch;
+    position: relative;
+    z-index: 2;
+}
+
+.unistudy-live-reasoning-icon {
+    width: 56px;
+    height: 78px;
+    flex: 0 0 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-3, var(--secondary-text));
+    font-size: 0.85em;
+    font-weight: 700;
+    filter: none;
+}
+
+.unistudy-live-reasoning-icon svg {
+    width: 28px;
+    height: 28px;
+    animation: unistudy-live-reasoning-pulse 1.6s ease-in-out infinite;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-icon svg,
+.message-item:not(.streaming) .unistudy-live-reasoning-icon svg {
+    animation: none;
+}
+
+.unistudy-live-reasoning-text-wrap {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 3px;
+    padding: 9px 0 8px 0;
+    overflow: hidden;
+    position: relative;
+}
+
+.unistudy-live-reasoning-title-row {
+    display: block;
+    min-height: 20px;
+    line-height: 20px;
+    position: relative;
+    z-index: 3;
+    background: inherit;
+}
+
+.unistudy-live-reasoning-label {
+    line-height: 20px;
+    font-size: 17px;
+    font-weight: 650;
+    color: var(--primary-text);
+    letter-spacing: -0.02em;
+}
+
+.unistudy-live-reasoning-preview {
+    display: block;
+    max-width: 100%;
+    height: 45px;
+    min-height: 45px;
+    line-height: 15px;
+    color: var(--secondary-text);
+    font-size: 13px;
+    overflow: hidden;
+    opacity: 0.76;
+    position: relative;
+    mask: linear-gradient(
+        to bottom,
+        rgb(0 0 0 / 24%) 0%,
+        rgb(0 0 0 / 64%) 18%,
+        rgb(0 0 0 / 100%) 54%,
+        rgb(0 0 0 / 100%) 100%
+    );
+}
+
+.unistudy-live-reasoning-preview span {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-preview {
+    display: none;
+}
+
+.unistudy-live-reasoning-toggle {
+    flex: 0 0 36px;
+    width: 36px;
+    height: 78px;
+    margin-left: 6px !important;
+    transition: transform 150ms ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--secondary-text);
+}
+
+.unistudy-live-reasoning-toggle svg {
+    width: 22px;
+    height: 22px;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-live-reasoning-toggle {
+    transform: rotate(90deg);
+}
+
+.unistudy-live-reasoning-bubble .unistudy-thought-chain-collapsible-content {
+    padding: 0 16px;
+}
+
+.unistudy-live-reasoning-bubble.expanded .unistudy-thought-chain-collapsible-content {
+    max-height: min(45vh, 420px);
+    overflow-y: auto;
+    margin-top: 0;
+    padding: 4px 24px 6px 24px;
+    border-top: 0.5px solid rgba(120, 120, 128, 0.22);
+}
+
+.unistudy-live-reasoning-body {
+    font-style: normal;
+    color: var(--secondary-text);
+    font-size: 15px;
+    line-height: 1.48;
+}
+
+.unistudy-live-reasoning-body p {
+    margin: 0 0 0.45em 0;
+}
+
+.unistudy-live-reasoning-body p:first-child {
+    margin-top: 0;
+}
+
+.unistudy-live-reasoning-body p:last-child {
+    margin-bottom: 0;
+}
+
+@keyframes unistudy-live-reasoning-pulse {
+    0%, 100% {
+        opacity: 0.62;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.08);
+    }
+}
+
+/* --- Role Divider --- */
+.unistudy-role-divider {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 15px 0;
+    font-size: 0.85em;
+    color: var(--primary-text);
+    opacity: 0.7;
+    user-select: none;
+    clear: both;
+}
+
+.unistudy-role-divider::before,
+.unistudy-role-divider::after {
+    content: "";
+    flex: 1;
+    border-bottom: 1px dashed var(--border-color, #ccc);
+    margin: 0 15px;
+}
+
+.unistudy-role-divider.role-system {
+    color: #e67e22;
+}
+
+.unistudy-role-divider.role-assistant {
+    color: #3498db;
+}
+
+.unistudy-role-divider.role-user {
+    color: #2ecc71;
+}
+
+.unistudy-role-divider.type-end {
+    opacity: 0.5;
+}
+
+/* --- Desktop Push Placeholder --- */
+.unistudy-desktop-push-placeholder {
+    display: block !important;
+    background: linear-gradient(145deg, rgba(30, 60, 90, 0.15), rgba(20, 40, 70, 0.25)) !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(100, 180, 255, 0.2);
+    padding: 12px 16px !important;
+    margin: 10px 0 !important;
+    position: relative;
+    font-family: var(--tool-card-font-family, var(--chat-font-family, 'Segoe UI', 'Roboto', sans-serif)) !important;
+    font-size: 0.92em !important;
+    line-height: 1.5;
+    width: fit-content;
+    max-width: 95%;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(4px);
+}
+
+.unistudy-desktop-push-placeholder.constructing {
+    border-color: rgba(100, 180, 255, 0.4);
+    animation: unistudy-desktop-push-breathe 2s ease-in-out infinite;
+}
+
+@keyframes unistudy-desktop-push-breathe {
+    0% { border-color: rgba(100, 180, 255, 0.2); box-shadow: 0 0 0 rgba(100, 180, 255, 0); }
+    50% { border-color: rgba(100, 180, 255, 0.5); box-shadow: 0 0 12px rgba(100, 180, 255, 0.15); }
+    100% { border-color: rgba(100, 180, 255, 0.2); box-shadow: 0 0 0 rgba(100, 180, 255, 0); }
+}
+
+.unistudy-desktop-push-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.unistudy-desktop-push-icon {
+    font-size: 1.1em;
+}
+
+.unistudy-desktop-push-label {
+    font-weight: 600;
+    color: rgba(100, 180, 255, 0.9);
+    font-size: 0.95em;
+}
+
+.unistudy-desktop-push-preview {
+    opacity: 0.5;
+    font-size: 0.85em;
+}
+
+.unistudy-desktop-push-preview pre {
+    margin: 0;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: var(--chat-code-font-family, 'Consolas', 'Monaco', 'Courier New', monospace);
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.6);
+    max-height: 80px;
+    overflow: hidden;
+}
+
+body.light-theme .unistudy-desktop-push-placeholder {
+    background: linear-gradient(145deg, rgba(200, 220, 240, 0.3), rgba(180, 210, 240, 0.2)) !important;
+    border-color: rgba(50, 120, 200, 0.2);
+}
+
+body.light-theme .unistudy-desktop-push-label {
+    color: rgba(30, 100, 180, 0.9);
+}
+
+body.light-theme .unistudy-desktop-push-preview pre {
+    background: rgba(0, 0, 0, 0.05);
+    color: rgba(0, 0, 0, 0.5);
+}
